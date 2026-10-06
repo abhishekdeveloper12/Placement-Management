@@ -57,11 +57,15 @@ class SuperAdminAnalyticsService {
       User.countDocuments({ role: 'TEAM_MEMBER' }),
     ]);
 
+    // Fetch active registered organization IDs for tenant-safe global aggregation
+    const activeOrgs = await Organization.find({}).select('_id');
+    const validOrgIds = activeOrgs.map((o) => o._id);
+
     // 3. Companies KPI
     const [totalCompanies, distinctAssignedIds, distinctContactedIds] = await Promise.all([
-      Company.countDocuments({ status: { $ne: 'INACTIVE' } }),
-      Assignment.distinct('companyId', { status: 'ACTIVE' }),
-      Interaction.distinct('companyId'),
+      Company.countDocuments({ status: { $ne: 'INACTIVE' }, organizationId: { $in: validOrgIds } }),
+      Assignment.distinct('companyId', { status: 'ACTIVE', organizationId: { $in: validOrgIds } }),
+      Interaction.distinct('companyId', { organizationId: { $in: validOrgIds } }),
     ]);
 
     const assignedCompanies = distinctAssignedIds.length;
@@ -70,10 +74,10 @@ class SuperAdminAnalyticsService {
 
     // 4. Hiring KPI
     const [totalOpportunities, currentlyHiring, hiringPlanned, shortlistedOpportunities] = await Promise.all([
-      JobOpportunity.countDocuments({}),
-      JobOpportunity.countDocuments({ hiringStatus: 'HIRING_NOW' }),
-      JobOpportunity.countDocuments({ hiringStatus: 'HIRING_PLANNED' }),
-      JobOpportunity.countDocuments({ isShortlisted: true }),
+      JobOpportunity.countDocuments({ organizationId: { $in: validOrgIds } }),
+      JobOpportunity.countDocuments({ hiringStatus: 'HIRING_NOW', organizationId: { $in: validOrgIds } }),
+      JobOpportunity.countDocuments({ hiringStatus: 'HIRING_PLANNED', organizationId: { $in: validOrgIds } }),
+      JobOpportunity.countDocuments({ isShortlisted: true, organizationId: { $in: validOrgIds } }),
     ]);
 
     // 5. Organization Performance Table

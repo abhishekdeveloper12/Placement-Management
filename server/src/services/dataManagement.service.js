@@ -16,6 +16,10 @@ class DataManagementService {
    * Retrieves database counts comparing Real Data (isTestData !== true) vs Test Data (isTestData === true)
    */
   async getDataSummary() {
+    const activeOrgs = await Organization.find({}).select('_id');
+    const validOrgIds = activeOrgs.map((o) => o._id);
+    const orgFilter = { organizationId: { $in: validOrgIds } };
+
     const [
       organizations,
       users,
@@ -31,13 +35,13 @@ class DataManagementService {
     ] = await Promise.all([
       Organization.countDocuments({}),
       User.countDocuments({}),
-      Company.countDocuments({}),
-      Contact.countDocuments({}),
-      Assignment.countDocuments({}),
-      Interaction.countDocuments({}),
-      FollowUp.countDocuments({}),
-      JobOpportunity.countDocuments({}),
-      Document.countDocuments({}),
+      Company.countDocuments(orgFilter),
+      Contact.countDocuments(orgFilter),
+      Assignment.countDocuments(orgFilter),
+      Interaction.countDocuments(orgFilter),
+      FollowUp.countDocuments(orgFilter),
+      JobOpportunity.countDocuments(orgFilter),
+      Document.countDocuments(orgFilter),
       Notification.countDocuments({}),
       AuditLog.countDocuments({}),
     ]);
