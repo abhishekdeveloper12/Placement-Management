@@ -20,6 +20,7 @@ router.get('/organizations/:id', superAdminController.getOrganization);
 router.get('/organizations/:organizationId/analytics', superAdminAnalyticsController.getOrganizationAnalytics);
 router.patch('/organizations/:id', superAdminController.updateOrganization);
 router.patch('/organizations/:id/status', superAdminController.updateOrganizationStatus);
+router.delete('/organizations/:id', superAdminController.deleteOrganization);
 
 // Organization PMO management endpoints
 router.get('/organizations/:organizationId/pmo', superAdminController.getOrganizationPmo);

@@ -1,6 +1,17 @@
 import mongoose from 'mongoose';
 import Organization from '../models/Organization.js';
 import User from '../models/User.js';
+import Company from '../models/Company.js';
+import Contact from '../models/Contact.js';
+import Assignment from '../models/Assignment.js';
+import Interaction from '../models/Interaction.js';
+import FollowUp from '../models/FollowUp.js';
+import JobOpportunity from '../models/JobOpportunity.js';
+import JobRole from '../models/JobRole.js';
+import Document from '../models/Document.js';
+import Notification from '../models/Notification.js';
+import AuditLog from '../models/AuditLog.js';
+import CompanyImport from '../models/CompanyImport.js';
 import auditService from './audit.service.js';
 
 class OrganizationService {
@@ -358,6 +369,72 @@ class OrganizationService {
     });
 
     return organization.toJSON();
+  }
+
+  /**
+   * Permanently delete an organization and all associated operational tenant records
+   *
+   * @param {string} id - Organization ID
+   * @param {string} performedByUserId - Super Admin ID performing deletion
+   * @returns {Promise<{ success: boolean, message: string, deletedOrganizationId: string, name: string }>}
+   */
+  async deleteOrganization(id, performedByUserId) {
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      const error = new Error('Invalid organization ID format');
+      error.statusCode = 400;
+      error.code = 'INVALID_ORGANIZATION_ID';
+      throw error;
+    }
+
+    const organization = await Organization.findById(id);
+    if (!organization) {
+      const error = new Error('Organization not found');
+      error.statusCode = 404;
+      error.code = 'ORGANIZATION_NOT_FOUND';
+      throw error;
+    }
+
+    const orgId = organization._id;
+    const orgName = organization.name;
+    const orgCode = organization.code;
+
+    // Log action to global system before deleting organization resources
+    try {
+      await auditService.logAction({
+        organizationId: orgId,
+        performedBy: performedByUserId,
+        action: 'ORGANIZATION_DELETED',
+        entityType: 'Organization',
+        entityId: orgId,
+        metadata: { name: orgName, code: orgCode },
+      });
+    } catch (auditErr) {
+      console.warn(`[DeleteOrganization] Audit log warning: ${auditErr.message}`);
+    }
+
+    // Cascading delete across all collections tied to this tenant
+    await Promise.all([
+      Company.deleteMany({ organizationId: orgId }),
+      Contact.deleteMany({ organizationId: orgId }),
+      Assignment.deleteMany({ organizationId: orgId }),
+      Interaction.deleteMany({ organizationId: orgId }),
+      FollowUp.deleteMany({ organizationId: orgId }),
+      JobOpportunity.deleteMany({ organizationId: orgId }),
+      JobRole.deleteMany({ organizationId: orgId }),
+      Document.deleteMany({ organizationId: orgId }),
+      Notification.deleteMany({ organizationId: orgId }),
+      User.deleteMany({ organizationId: orgId }),
+      AuditLog.deleteMany({ organizationId: orgId }),
+      CompanyImport.deleteMany({ organizationId: orgId }),
+      Organization.deleteOne({ _id: orgId }),
+    ]);
+
+    return {
+      success: true,
+      message: `Organization "${orgName}" and all associated operational data were permanently deleted.`,
+      deletedOrganizationId: orgId.toString(),
+      name: orgName,
+    };
   }
 }
 

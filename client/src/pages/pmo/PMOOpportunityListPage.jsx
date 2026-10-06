@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import opportunityService from '../../services/opportunity.service';
 import pmoService from '../../services/pmo.service';
 import companyService from '../../services/company.service';
+import jobRoleService from '../../services/jobRole.service';
 import OpportunityFormModal from '../../components/opportunities/OpportunityFormModal';
 import {
   Briefcase,
@@ -28,19 +29,23 @@ import {
 } from 'lucide-react';
 
 export default function PMOOpportunityListPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
+
   const [opportunities, setOpportunities] = useState([]);
   const [pagination, setPagination] = useState({ page: 1, limit: 10, total: 0, totalPages: 1 });
 
   // Filters
   const [search, setSearch] = useState('');
-  const [hiringStatusFilter, setHiringStatusFilter] = useState('');
+  const [hiringStatusFilter, setHiringStatusFilter] = useState(searchParams.get('hiringStatus') || '');
   const [opportunityTypeFilter, setOpportunityTypeFilter] = useState('');
   const [companyFilter, setCompanyFilter] = useState('');
-  const [createdByFilter, setCreatedByFilter] = useState('');
+  const [createdByFilter, setCreatedByFilter] = useState(searchParams.get('assignedTo') || '');
   const [shortlistedFilter, setShortlistedFilter] = useState('');
+  const [jobRoleFilter, setJobRoleFilter] = useState('');
 
   const [teamMembers, setTeamMembers] = useState([]);
   const [companies, setCompanies] = useState([]);
+  const [activeJobRoles, setActiveJobRoles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -51,19 +56,33 @@ export default function PMOOpportunityListPage() {
   useEffect(() => {
     async function loadDropdowns() {
       try {
-        const [tmRes, compRes] = await Promise.all([
+        const [tmRes, compRes, roleRes] = await Promise.all([
           pmoService.getTeamMembers({ limit: 100 }),
           companyService.getCompanies({ limit: 100 }),
+          jobRoleService.getActiveJobRoles(),
         ]);
 
         if (tmRes.success) setTeamMembers(tmRes.data);
         if (compRes.success) setCompanies(compRes.data);
+        if (Array.isArray(roleRes)) setActiveJobRoles(roleRes);
       } catch (err) {
         console.error('Failed to load filter dropdowns:', err);
       }
     }
     loadDropdowns();
   }, []);
+
+  // Synchronize state if URL searchParams change
+  useEffect(() => {
+    const urlHiringStatus = searchParams.get('hiringStatus');
+    if (urlHiringStatus && urlHiringStatus !== hiringStatusFilter) {
+      setHiringStatusFilter(urlHiringStatus);
+    }
+    const urlAssignedTo = searchParams.get('assignedTo');
+    if (urlAssignedTo && urlAssignedTo !== createdByFilter) {
+      setCreatedByFilter(urlAssignedTo);
+    }
+  }, [searchParams]);
 
   const fetchOpportunities = useCallback(
     async (page = pagination.page) => {
@@ -78,6 +97,7 @@ export default function PMOOpportunityListPage() {
           hiringStatus: hiringStatusFilter || undefined,
           opportunityType: opportunityTypeFilter || undefined,
           shortlisted: shortlistedFilter || undefined,
+          jobRoleId: jobRoleFilter || undefined,
           search: search || undefined,
         };
 
@@ -88,17 +108,17 @@ export default function PMOOpportunityListPage() {
         }
       } catch (err) {
         console.error('Failed to fetch PMO opportunities:', err);
-        setError(err.response?.data?.error?.message || 'Failed to load organization job opportunities');
+        setError(err.message || err.response?.data?.error?.message || 'Failed to load organization job opportunities');
       } finally {
         setLoading(false);
       }
     },
-    [companyFilter, createdByFilter, hiringStatusFilter, opportunityTypeFilter, shortlistedFilter, pagination.limit, pagination.page, search]
+    [companyFilter, createdByFilter, hiringStatusFilter, opportunityTypeFilter, shortlistedFilter, jobRoleFilter, pagination.limit, pagination.page, search]
   );
 
   useEffect(() => {
     fetchOpportunities(1);
-  }, [companyFilter, createdByFilter, hiringStatusFilter, opportunityTypeFilter, shortlistedFilter, search]);
+  }, [companyFilter, createdByFilter, hiringStatusFilter, opportunityTypeFilter, shortlistedFilter, jobRoleFilter, search]);
 
   const handleStatusQuickChange = async (oppId, newStatus) => {
     try {
@@ -244,6 +264,19 @@ export default function PMOOpportunityListPage() {
             <option value="INTERNSHIP">Internship</option>
             <option value="INTERNSHIP_PPO">Internship + PPO</option>
             <option value="MULTIPLE">Multiple</option>
+          </select>
+
+          <select
+            value={jobRoleFilter}
+            onChange={(e) => setJobRoleFilter(e.target.value)}
+            className="px-3 py-2 border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-indigo-500 outline-none bg-white max-w-[160px]"
+          >
+            <option value="">All Job Roles</option>
+            {activeJobRoles.map((role) => (
+              <option key={role.id || role._id} value={role.id || role._id}>
+                {role.name}
+              </option>
+            ))}
           </select>
 
           <select

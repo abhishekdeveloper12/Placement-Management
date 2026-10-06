@@ -25,6 +25,8 @@ import {
   PhoneCall,
   FileText,
   Lock,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 
 // Zod schema for editing Team Member
@@ -81,6 +83,10 @@ export default function TeamMemberDetailPage() {
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   const [statusLoading, setStatusLoading] = useState(false);
+
+  // Password Visibility States
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   // Form hook
   const {
@@ -485,12 +491,22 @@ export default function TeamMemberDetailPage() {
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
                   New Password
                 </label>
-                <input
-                  type="password"
-                  {...register('password')}
-                  placeholder="Min. 8 characters"
-                  className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
-                />
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    {...register('password')}
+                    placeholder="Min. 8 characters"
+                    className="w-full pl-3 pr-9 py-2 text-xs rounded-lg border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute inset-y-0 right-0 pr-2.5 flex items-center text-slate-400 hover:text-slate-600 cursor-pointer"
+                    title={showPassword ? 'Hide password' : 'Show password'}
+                  >
+                    {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
                 {errors.password && (
                   <p className="text-[11px] text-rose-500 mt-1">{errors.password.message}</p>
                 )}
@@ -500,12 +516,22 @@ export default function TeamMemberDetailPage() {
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
                   Confirm Password
                 </label>
-                <input
-                  type="password"
-                  {...register('confirmPassword')}
-                  placeholder="Re-enter new password"
-                  className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
-                />
+                <div className="relative">
+                  <input
+                    type={showConfirmPassword ? 'text' : 'password'}
+                    {...register('confirmPassword')}
+                    placeholder="Re-enter new password"
+                    className="w-full pl-3 pr-9 py-2 text-xs rounded-lg border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                    className="absolute inset-y-0 right-0 pr-2.5 flex items-center text-slate-400 hover:text-slate-600 cursor-pointer"
+                    title={showConfirmPassword ? 'Hide password' : 'Show password'}
+                  >
+                    {showConfirmPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
                 {errors.confirmPassword && (
                   <p className="text-[11px] text-rose-500 mt-1">{errors.confirmPassword.message}</p>
                 )}

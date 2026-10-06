@@ -16,6 +16,7 @@ import {
   ExternalLink,
   Edit2,
   Power,
+  Trash2,
   ChevronLeft,
   ChevronRight,
   AlertCircle,
@@ -64,6 +65,11 @@ export default function OrganizationListPage() {
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   const [statusTargetOrg, setStatusTargetOrg] = useState(null);
   const [statusLoading, setStatusLoading] = useState(false);
+
+  // Delete organization modal
+  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
+  const [deleteTargetOrg, setDeleteTargetOrg] = useState(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
 
   // Form hooks
   const {
@@ -161,7 +167,7 @@ export default function OrganizationListPage() {
       }
     } catch (err) {
       console.error('Update organization error:', err);
-      alert(err.response?.data?.error?.message || 'Failed to update organization');
+      alert(err.message || err.response?.data?.error?.message || 'Failed to update organization');
     }
   };
 
@@ -189,9 +195,36 @@ export default function OrganizationListPage() {
       }
     } catch (err) {
       console.error('Status update error:', err);
-      alert(err.response?.data?.error?.message || 'Failed to update organization status');
+      alert(err.message || err.response?.data?.error?.message || 'Failed to update organization status');
     } finally {
       setStatusLoading(false);
+    }
+  };
+
+  // Open Delete Organization Confirmation Dialog
+  const openDeleteOrgConfirm = (org) => {
+    setDeleteTargetOrg(org);
+    setIsDeleteConfirmOpen(true);
+  };
+
+  // Handle Permanent Delete Organization
+  const handleConfirmDeleteOrg = async () => {
+    if (!deleteTargetOrg) return;
+    setDeleteLoading(true);
+    try {
+      const response = await superAdminService.deleteOrganization(deleteTargetOrg.id);
+      if (response.success) {
+        setActionSuccess(`Organization "${deleteTargetOrg.name}" and all associated tenant data were permanently deleted.`);
+        setIsDeleteConfirmOpen(false);
+        setDeleteTargetOrg(null);
+        fetchOrganizations(pagination.page);
+        setTimeout(() => setActionSuccess(''), 4000);
+      }
+    } catch (err) {
+      console.error('Delete organization error:', err);
+      alert(err.message || err.response?.data?.error?.message || 'Failed to delete organization');
+    } finally {
+      setDeleteLoading(false);
     }
   };
 
@@ -401,12 +434,20 @@ export default function OrganizationListPage() {
                           onClick={() => openStatusConfirm(org)}
                           className={`p-1 rounded transition-colors cursor-pointer ${
                             org.status === 'ACTIVE'
-                              ? 'text-slate-400 hover:text-rose-600'
+                              ? 'text-slate-400 hover:text-amber-600'
                               : 'text-slate-400 hover:text-emerald-600'
                           }`}
                           title={org.status === 'ACTIVE' ? 'Deactivate Organization' : 'Activate Organization'}
                         >
                           <Power className="w-4 h-4" />
+                        </button>
+
+                        <button
+                          onClick={() => openDeleteOrgConfirm(org)}
+                          className="p-1 text-slate-400 hover:text-rose-600 rounded transition-colors cursor-pointer"
+                          title="Delete Organization & All Associated Data"
+                        >
+                          <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
                     </td>
@@ -651,8 +692,23 @@ export default function OrganizationListPage() {
             : `Are you sure you want to activate "${statusTargetOrg?.name}"? Its placement staff will regain access to outreach workflows.`
         }
         confirmText={statusTargetOrg?.status === 'ACTIVE' ? 'Deactivate' : 'Activate'}
-        confirmVariant={statusTargetOrg?.status === 'ACTIVE' ? 'danger' : 'primary'}
+        confirmVariant={statusTargetOrg?.status === 'ACTIVE' ? 'warning' : 'primary'}
         isLoading={statusLoading}
+      />
+
+      {/* CONFIRM DELETE ORGANIZATION DIALOG */}
+      <ConfirmDialog
+        isOpen={isDeleteConfirmOpen}
+        onClose={() => {
+          setIsDeleteConfirmOpen(false);
+          setDeleteTargetOrg(null);
+        }}
+        onConfirm={handleConfirmDeleteOrg}
+        title={`Delete Organization "${deleteTargetOrg?.name}"?`}
+        message={`CRITICAL WARNING: This action is permanent and CANNOT BE UNDONE. Deleting "${deleteTargetOrg?.name}" will PERMANENTLY ERASE the entire institution, all registered PMO accounts, team members, companies, contacts, assignments, outreach interactions, follow-ups, job opportunities, job roles, documents, and notifications!`}
+        confirmText="Delete Organization & Wipe Data"
+        confirmVariant="danger"
+        isLoading={deleteLoading}
       />
     </div>
   );

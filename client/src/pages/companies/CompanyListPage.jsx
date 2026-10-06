@@ -9,6 +9,7 @@ import companyService from '../../services/company.service';
 import superAdminService from '../../services/superAdmin.service';
 import pmoService from '../../services/pmo.service';
 import interactionService from '../../services/interaction.service';
+import jobRoleService from '../../services/jobRole.service';
 import Badge from '../../components/common/Badge';
 import Modal from '../../components/common/Modal';
 import ConfirmDialog from '../../components/common/ConfirmDialog';
@@ -115,6 +116,8 @@ export default function CompanyListPage() {
   const [assignedToFilter, setAssignedToFilter] = useState(searchParams.get('assignedTo') || '');
   const [outreachStatusFilter, setOutreachStatusFilter] = useState(searchParams.get('outreachStatus') || 'ALL');
   const [hiringStatusFilter, setHiringStatusFilter] = useState(searchParams.get('hiringStatus') || 'ALL');
+  const [jobRoleFilter, setJobRoleFilter] = useState(searchParams.get('jobRoleId') || 'ALL');
+  const [activeJobRoles, setActiveJobRoles] = useState([]);
 
   // Excel Export State
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
@@ -190,6 +193,16 @@ export default function CompanyListPage() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  // Fetch active Job Roles for organization
+  useEffect(() => {
+    jobRoleService
+      .getActiveJobRoles()
+      .then((roles) => {
+        if (Array.isArray(roles)) setActiveJobRoles(roles);
+      })
+      .catch((err) => console.warn('Failed to load active job roles for filter:', err.message));
+  }, []);
+
   // Fetch Organizations for Super Admin dropdown & Team Members for PMO dropdown
   useEffect(() => {
     if (isSuperAdmin) {
@@ -232,6 +245,7 @@ export default function CompanyListPage() {
             assignedTo: assignedToFilter,
             outreachStatus: outreachStatusFilter,
             hiringStatus: hiringStatusFilter,
+            jobRoleId: jobRoleFilter === 'ALL' ? undefined : jobRoleFilter,
             sortBy: 'createdAt',
             sortOrder: 'desc',
           }),
@@ -269,6 +283,7 @@ export default function CompanyListPage() {
       search,
       sourceFilter,
       statusFilter,
+      jobRoleFilter,
     ]
   );
 
@@ -285,6 +300,7 @@ export default function CompanyListPage() {
     assignedToFilter,
     outreachStatusFilter,
     hiringStatusFilter,
+    jobRoleFilter,
   ]);
 
   // Handle Excel Export
@@ -307,18 +323,34 @@ export default function CompanyListPage() {
       };
 
       const res = await companyService.exportCompanies(params);
-      const blob = new Blob([res.data], {
-        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      });
 
-      let filename = `placement-company-database-${new Date().toISOString().split('T')[0]}.xlsx`;
-      const disposition = res.headers?.['content-disposition'];
-      if (disposition && disposition.includes('filename=')) {
-        const match = disposition.match(/filename="?([^";]+)"?/);
-        if (match && match[1]) filename = match[1];
+      // apiClient interceptor returns response.data, which is already a Blob instance when responseType: 'blob'
+      let rawBlob = res;
+      if (res && res.data && !(res instanceof Blob)) {
+        rawBlob = res.data;
       }
 
-      const url = window.URL.createObjectURL(blob);
+      // Check if server returned a JSON error response instead of binary Excel blob
+      if (rawBlob instanceof Blob && (rawBlob.type === 'application/json' || rawBlob.type.includes('json'))) {
+        const text = await rawBlob.text();
+        let errMsg = 'Failed to export company database';
+        try {
+          const parsed = JSON.parse(text);
+          errMsg = parsed?.error?.message || parsed?.message || errMsg;
+        } catch (_) {}
+        throw new Error(errMsg);
+      }
+
+      const excelBlob =
+        rawBlob instanceof Blob
+          ? rawBlob
+          : new Blob([rawBlob], {
+              type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            });
+
+      let filename = `placement-company-database-${new Date().toISOString().split('T')[0]}.xlsx`;
+
+      const url = window.URL.createObjectURL(excelBlob);
       const link = document.createElement('a');
       link.href = url;
       link.setAttribute('download', filename);
@@ -332,7 +364,7 @@ export default function CompanyListPage() {
       setTimeout(() => setActionSuccess(''), 4000);
     } catch (err) {
       console.error('Export error:', err);
-      alert(err.response?.data?.error?.message || 'Failed to export company database to Excel');
+      alert(err.message || err.response?.data?.error?.message || 'Failed to export company database to Excel');
     } finally {
       setExportLoading(false);
     }
@@ -1034,6 +1066,20 @@ export default function CompanyListPage() {
               <option value="NO_RESPONSE">No Response</option>
             </select>
 
+            {/* Job Role Master Filter */}
+            <select
+              value={jobRoleFilter}
+              onChange={(e) => setJobRoleFilter(e.target.value)}
+              className="text-xs py-2 px-3 rounded-lg border border-indigo-200 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 bg-indigo-50/50 text-indigo-900 font-semibold cursor-pointer"
+            >
+              <option value="ALL">All Job Roles</option>
+              {activeJobRoles.map((role) => (
+                <option key={role.id || role._id} value={role.id || role._id}>
+                  {role.name}
+                </option>
+              ))}
+            </select>
+
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
@@ -1067,7 +1113,7 @@ export default function CompanyListPage() {
               </select>
             )}
 
-            {(search || statusFilter || industryFilter || cityFilter || orgFilter || sourceFilter !== 'ALL' || assignmentStatusFilter !== 'ALL' || assignedToFilter || outreachStatusFilter !== 'ALL' || hiringStatusFilter !== 'ALL') && (
+            {(search || statusFilter || industryFilter || cityFilter || orgFilter || sourceFilter !== 'ALL' || assignmentStatusFilter !== 'ALL' || assignedToFilter || outreachStatusFilter !== 'ALL' || hiringStatusFilter !== 'ALL' || jobRoleFilter !== 'ALL') && (
               <button
                 onClick={() => {
                   setSearch('');
@@ -1080,6 +1126,7 @@ export default function CompanyListPage() {
                   setAssignedToFilter('');
                   setOutreachStatusFilter('ALL');
                   setHiringStatusFilter('ALL');
+                  setJobRoleFilter('ALL');
                   setSearchParams({});
                 }}
                 className="text-xs text-indigo-600 hover:text-indigo-800 font-medium px-2 py-1 rounded hover:bg-indigo-50 transition-colors cursor-pointer"
@@ -1357,7 +1404,7 @@ export default function CompanyListPage() {
                             <Power className="w-3.5 h-3.5" />
                           </button>
 
-                          {(isPMO || isSuperAdmin) && (
+                          {isPMO && (
                             <button
                               onClick={() => {
                                 setDeleteTargetCompany(company);

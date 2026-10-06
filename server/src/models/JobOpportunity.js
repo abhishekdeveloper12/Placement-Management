@@ -94,6 +94,12 @@ const jobOpportunitySchema = new mongoose.Schema(
       ref: 'Interaction',
       default: null,
     },
+    jobRoleIds: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'JobRole',
+      },
+    ],
     jdDocumentId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Document',

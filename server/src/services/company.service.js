@@ -245,6 +245,42 @@ class CompanyService {
       }
     }
 
+    // Job Role filter (matches interactions with specific job roles)
+    const cleanJobRole = queryOptions.jobRoleId || queryOptions.jobRole;
+    if (cleanJobRole && cleanJobRole !== 'ALL') {
+      const orgIdMatch = filter.organizationId ? { organizationId: filter.organizationId } : {};
+
+      let matchingCompanyIds = [];
+      if (mongoose.Types.ObjectId.isValid(cleanJobRole)) {
+        matchingCompanyIds = await Interaction.distinct('companyId', {
+          ...orgIdMatch,
+          $or: [
+            { 'callDetails.jobRoleIds': new mongoose.Types.ObjectId(cleanJobRole) },
+            { 'callDetails.jobRoleSnapshots.roleId': new mongoose.Types.ObjectId(cleanJobRole) },
+          ],
+        });
+      } else {
+        const roleRegex = new RegExp(escapeRegex(cleanJobRole.trim()), 'i');
+        matchingCompanyIds = await Interaction.distinct('companyId', {
+          ...orgIdMatch,
+          $or: [
+            { 'callDetails.profiles': roleRegex },
+            { 'callDetails.jobRoleSnapshots.name': roleRegex },
+          ],
+        });
+      }
+
+      const jobRoleObjectIds = matchingCompanyIds.map((id) => new mongoose.Types.ObjectId(id));
+
+      if (filter._id && filter._id.$in) {
+        const existingStr = filter._id.$in.map((id) => id.toString());
+        const intersected = matchingCompanyIds.map((id) => id.toString()).filter((id) => existingStr.includes(id));
+        filter._id = { $in: intersected.map((id) => new mongoose.Types.ObjectId(id)) };
+      } else {
+        filter._id = { $in: jobRoleObjectIds };
+      }
+    }
+
     // Search substring filter across companyName, industry, city, location, remarks, and primary contact name/email
     if (search && search.trim() !== '') {
       const searchRegex = new RegExp(escapeRegex(search.trim()), 'i');
@@ -1128,8 +1164,8 @@ class CompanyService {
    * @returns {Promise<{ success: boolean, deletedCompanyId: string, companyName: string }>}
    */
   async deleteCompany(userContext, companyId) {
-    if (!['PMO', 'SUPER_ADMIN'].includes(userContext.role)) {
-      const error = new Error('Access denied to delete company records');
+    if (userContext.role !== 'PMO') {
+      const error = new Error('Access denied. Only PMO can delete individual company records from their organization.');
       error.statusCode = 403;
       error.code = 'FORBIDDEN';
       throw error;
@@ -1181,8 +1217,8 @@ class CompanyService {
    * @returns {Promise<{ success: boolean, deletedCount: number, deletedCompanyIds: Array<string> }>}
    */
   async bulkDeleteCompanies(userContext, companyIds = []) {
-    if (!['PMO', 'SUPER_ADMIN'].includes(userContext.role)) {
-      const error = new Error('Access denied to bulk delete company records');
+    if (userContext.role !== 'PMO') {
+      const error = new Error('Access denied. Only PMO can bulk delete company records from their organization.');
       error.statusCode = 403;
       error.code = 'FORBIDDEN';
       throw error;

@@ -5,6 +5,7 @@ import Company from '../models/Company.js';
 import Contact from '../models/Contact.js';
 import Assignment from '../models/Assignment.js';
 import JobRole from '../models/JobRole.js';
+import JobOpportunity from '../models/JobOpportunity.js';
 import auditService from './audit.service.js';
 
 class InteractionService {
@@ -330,6 +331,45 @@ class InteractionService {
       });
     }
 
+    // Auto-create / Auto-update JobOpportunity for hiring outreach feedback
+    const isHiringNow = hiringStatus === 'YES' || hiringStatus === 'HIRING_NOW' || outcome === 'HIRING_NOW';
+    const isHiringPlanned = hiringStatus === 'HIRING_PLANNED' || outcome === 'HIRING_PLANNED';
+
+    if (isHiringNow || isHiringPlanned) {
+      const opHiringStatus = isHiringNow ? 'HIRING_NOW' : 'HIRING_PLANNED';
+      const opportunityTitle =
+        normalizedProfiles.length > 0
+          ? normalizedProfiles.join(' / ')
+          : 'General Hiring Opportunity';
+
+      try {
+        await JobOpportunity.findOneAndUpdate(
+          { interactionId: interaction._id },
+          {
+            organizationId: orgId,
+            companyId: company._id,
+            title: opportunityTitle,
+            jobRoleIds: verifiedJobRoleIds,
+            opportunityType: opportunityType || 'FULL_TIME',
+            candidateType: candidateType || 'BOTH',
+            openings: openings !== null && openings !== undefined && openings !== '' ? String(openings) : '',
+            location: (location || '').trim(),
+            workMode: workMode === 'NOT_SPECIFIED' ? '' : workMode,
+            salary: (salaryOrStipend || '').trim(),
+            bond: bond === 'NOT_SURE' ? '' : bond,
+            specialRequirement: (specificRequirement || '').trim(),
+            hiringStatus: opHiringStatus,
+            source: 'HR_CALL',
+            interactionId: interaction._id,
+            createdBy: userId,
+          },
+          { upsert: true, new: true, setDefaultsOnInsert: true }
+        );
+      } catch (oppErr) {
+        console.warn(`[RecordCallInteraction] Auto JobOpportunity creation warning: ${oppErr.message}`);
+      }
+    }
+
     // Populate for response payload
     const populated = await Interaction.findById(interaction._id)
       .populate('userId', 'name email')
@@ -341,6 +381,65 @@ class InteractionService {
       followUp: followUpDoc ? followUpDoc.toJSON() : null,
       contact: contactDoc ? contactDoc.toJSON() : null,
     };
+  }
+
+  /**
+   * Sync past HR call interactions with hiring outcomes into JobOpportunity collection
+   *
+   * @param {string} orgId - Organization ID
+   */
+  async syncHiringInteractionsToOpportunities(orgId) {
+    if (!orgId) return;
+    try {
+      const hiringInteractions = await Interaction.find({
+        organizationId: orgId,
+        $or: [
+          { outcome: { $in: ['HIRING_NOW', 'HIRING_PLANNED'] } },
+          { 'callDetails.hiringStatus': { $in: ['YES', 'HIRING_NOW', 'HIRING_PLANNED'] } },
+        ],
+      }).lean();
+
+      for (const inter of hiringInteractions) {
+        const isHiringNow =
+          inter.outcome === 'HIRING_NOW' ||
+          inter.callDetails?.hiringStatus === 'YES' ||
+          inter.callDetails?.hiringStatus === 'HIRING_NOW';
+        const isHiringPlanned =
+          inter.outcome === 'HIRING_PLANNED' || inter.callDetails?.hiringStatus === 'HIRING_PLANNED';
+
+        const opHiringStatus = isHiringNow ? 'HIRING_NOW' : isHiringPlanned ? 'HIRING_PLANNED' : 'NOT_HIRING';
+        if (opHiringStatus === 'NOT_HIRING') continue;
+
+        const profiles =
+          inter.callDetails?.jobRoleSnapshots?.map((r) => r.name) || inter.callDetails?.profiles || [];
+        const title = profiles.length > 0 ? profiles.join(' / ') : 'General Hiring Opportunity';
+
+        await JobOpportunity.findOneAndUpdate(
+          { interactionId: inter._id },
+          {
+            organizationId: inter.organizationId,
+            companyId: inter.companyId,
+            title,
+            jobRoleIds: inter.callDetails?.jobRoleIds || [],
+            opportunityType: inter.callDetails?.opportunityType || 'FULL_TIME',
+            candidateType: inter.callDetails?.candidateType || 'BOTH',
+            openings: inter.callDetails?.openings ? String(inter.callDetails.openings) : '',
+            location: inter.callDetails?.location || '',
+            workMode: inter.callDetails?.workMode === 'NOT_SPECIFIED' ? '' : inter.callDetails?.workMode || '',
+            salary: inter.callDetails?.salaryOrStipend || '',
+            bond: inter.callDetails?.bond === 'NOT_SURE' ? '' : inter.callDetails?.bond || '',
+            specialRequirement: inter.callDetails?.specificRequirement || '',
+            hiringStatus: opHiringStatus,
+            source: 'HR_CALL',
+            interactionId: inter._id,
+            createdBy: inter.userId,
+          },
+          { upsert: true, setDefaultsOnInsert: true }
+        );
+      }
+    } catch (err) {
+      console.warn(`[SyncHiringInteractions] Warning: ${err.message}`);
+    }
   }
 
   /**

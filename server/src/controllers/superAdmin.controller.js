@@ -123,6 +123,22 @@ class SuperAdminController {
   }
 
   /**
+   * DELETE /api/super-admin/organizations/:id
+   * Permanently delete an organization and all its associated operational data
+   */
+  async deleteOrganization(req, res, next) {
+    try {
+      const { id } = req.params;
+      const performedByUserId = req.user.id;
+
+      const result = await organizationService.deleteOrganization(id, performedByUserId);
+      return successResponse(res, 200, result.message, result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
    * GET /api/super-admin/organizations/:organizationId/pmo
    * Retrieve the primary PMO for an organization
    */

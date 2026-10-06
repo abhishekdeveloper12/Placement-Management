@@ -13,6 +13,7 @@ import {
   Shield,
   Edit2,
   Power,
+  Trash2,
   ChevronLeft,
   Mail,
   Phone,
@@ -24,6 +25,8 @@ import {
   Loader2,
   CheckCircle2,
   Lock,
+  Eye,
+  EyeOff,
   X,
   Briefcase,
 } from 'lucide-react';
@@ -102,6 +105,10 @@ export default function OrganizationDetailPage() {
     action: null,
     isLoading: false,
   });
+
+  // Password visibility states
+  const [showCreatePmoPassword, setShowCreatePmoPassword] = useState(false);
+  const [showEditPmoPassword, setShowEditPmoPassword] = useState(false);
 
   // Edit Org Form
   const {
@@ -186,7 +193,7 @@ export default function OrganizationDetailPage() {
       }
     } catch (err) {
       console.error('Update org error:', err);
-      alert(err.response?.data?.error?.message || 'Failed to update organization');
+      alert(err.message || err.response?.data?.error?.message || 'Failed to update organization');
     }
   };
 
@@ -212,7 +219,30 @@ export default function OrganizationDetailPage() {
           setTimeout(() => setActionSuccess(''), 4000);
         } catch (err) {
           setConfirmDialog((prev) => ({ ...prev, isLoading: false }));
-          alert(err.response?.data?.error?.message || 'Failed to update organization status');
+          alert(err.message || err.response?.data?.error?.message || 'Failed to update organization status');
+        }
+      },
+      isLoading: false,
+    });
+  };
+
+  // Permanent Delete Organization
+  const handleDeleteOrganization = () => {
+    setConfirmDialog({
+      isOpen: true,
+      title: `Delete Organization "${org?.name}"?`,
+      message: `CRITICAL WARNING: This action is permanent and CANNOT BE UNDONE. Deleting "${org?.name}" will PERMANENTLY ERASE the entire institution, all registered PMO accounts, team members, companies, contacts, assignments, outreach interactions, follow-ups, job opportunities, job roles, documents, and notifications!`,
+      confirmText: 'Delete Organization & Wipe Data',
+      confirmVariant: 'danger',
+      action: async () => {
+        setConfirmDialog((prev) => ({ ...prev, isLoading: true }));
+        try {
+          await superAdminService.deleteOrganization(id);
+          setConfirmDialog((prev) => ({ ...prev, isOpen: false, isLoading: false }));
+          navigate('/super-admin/organizations');
+        } catch (err) {
+          setConfirmDialog((prev) => ({ ...prev, isLoading: false }));
+          alert(err.message || err.response?.data?.error?.message || 'Failed to delete organization');
         }
       },
       isLoading: false,
@@ -244,7 +274,7 @@ export default function OrganizationDetailPage() {
       }
     } catch (err) {
       console.error('Create PMO error:', err);
-      alert(err.response?.data?.error?.message || 'Failed to provision PMO');
+      alert(err.message || err.response?.data?.error?.message || 'Failed to provision PMO');
     }
   };
 
@@ -282,7 +312,7 @@ export default function OrganizationDetailPage() {
       }
     } catch (err) {
       console.error('Update PMO error:', err);
-      alert(err.response?.data?.error?.message || 'Failed to update PMO');
+      alert(err.message || err.response?.data?.error?.message || 'Failed to update PMO');
     }
   };
 
@@ -309,7 +339,7 @@ export default function OrganizationDetailPage() {
           setTimeout(() => setActionSuccess(''), 4000);
         } catch (err) {
           setConfirmDialog((prev) => ({ ...prev, isLoading: false }));
-          alert(err.response?.data?.error?.message || 'Failed to update PMO status');
+          alert(err.message || err.response?.data?.error?.message || 'Failed to update PMO status');
         }
       },
       isLoading: false,
@@ -402,12 +432,21 @@ export default function OrganizationDetailPage() {
             onClick={handleToggleOrgStatus}
             className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors shadow-2xs cursor-pointer ${
               org.status === 'ACTIVE'
-                ? 'text-rose-700 bg-rose-50 border border-rose-200 hover:bg-rose-100'
+                ? 'text-amber-700 bg-amber-50 border border-amber-200 hover:bg-amber-100'
                 : 'text-emerald-700 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100'
             }`}
           >
             <Power className="w-3.5 h-3.5" />
             <span>{org.status === 'ACTIVE' ? 'Deactivate' : 'Activate'}</span>
+          </button>
+
+          <button
+            onClick={handleDeleteOrganization}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-rose-700 bg-rose-50 border border-rose-200 rounded-lg hover:bg-rose-100 transition-colors shadow-2xs cursor-pointer"
+            title="Permanently Delete Organization & All Associated Data"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            <span>Delete Organization</span>
           </button>
         </div>
       </div>
@@ -803,12 +842,22 @@ export default function OrganizationDetailPage() {
             <label className="block text-xs font-semibold text-slate-700 mb-1">
               Initial Password <span className="text-rose-500">*</span>
             </label>
-            <input
-              type="password"
-              placeholder="Min 8 chars, uppercase, lowercase, number, symbol"
-              {...registerCreatePmo('password')}
-              className="w-full text-xs px-3 py-2 border border-slate-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
-            />
+            <div className="relative">
+              <input
+                type={showCreatePmoPassword ? 'text' : 'password'}
+                placeholder="Min 8 chars, uppercase, lowercase, number, symbol"
+                {...registerCreatePmo('password')}
+                className="w-full text-xs pl-3 pr-9 py-2 border border-slate-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+              />
+              <button
+                type="button"
+                onClick={() => setShowCreatePmoPassword(!showCreatePmoPassword)}
+                className="absolute inset-y-0 right-0 pr-2.5 flex items-center text-slate-400 hover:text-slate-600 cursor-pointer"
+                title={showCreatePmoPassword ? 'Hide password' : 'Show password'}
+              >
+                {showCreatePmoPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+              </button>
+            </div>
             {createPmoErrors.password && (
               <p className="text-[11px] text-rose-600 mt-1">{createPmoErrors.password.message}</p>
             )}
@@ -892,12 +941,22 @@ export default function OrganizationDetailPage() {
             <label className="block text-xs font-semibold text-slate-700 mb-1">
               Reset Password (Optional)
             </label>
-            <input
-              type="password"
-              placeholder="Leave blank to retain current password"
-              {...registerEditPmo('password')}
-              className="w-full text-xs px-3 py-2 border border-slate-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
-            />
+            <div className="relative">
+              <input
+                type={showEditPmoPassword ? 'text' : 'password'}
+                placeholder="Leave blank to retain current password"
+                {...registerEditPmo('password')}
+                className="w-full text-xs pl-3 pr-9 py-2 border border-slate-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+              />
+              <button
+                type="button"
+                onClick={() => setShowEditPmoPassword(!showEditPmoPassword)}
+                className="absolute inset-y-0 right-0 pr-2.5 flex items-center text-slate-400 hover:text-slate-600 cursor-pointer"
+                title={showEditPmoPassword ? 'Hide password' : 'Show password'}
+              >
+                {showEditPmoPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+              </button>
+            </div>
             {editPmoErrors.password && (
               <p className="text-[11px] text-rose-600 mt-1">{editPmoErrors.password.message}</p>
             )}

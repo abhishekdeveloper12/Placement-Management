@@ -29,12 +29,12 @@ router.get('/stats', companyController.getCompanyStats);
 // Directory & List
 router.get('/', companyController.getCompanies);
 router.post('/', companyController.createCompany);
-router.post('/bulk-delete', requireRole('SUPER_ADMIN', 'PMO'), companyController.bulkDeleteCompanies);
+router.post('/bulk-delete', requireRole('PMO'), companyController.bulkDeleteCompanies);
 
 // Single Company Operations
 router.get('/:id', companyController.getCompanyById);
 router.patch('/:id', companyController.updateCompany);
 router.patch('/:id/status', companyController.updateCompanyStatus);
-router.delete('/:id', requireRole('SUPER_ADMIN', 'PMO'), companyController.deleteCompany);
+router.delete('/:id', requireRole('PMO'), companyController.deleteCompany);
 
 export default router;

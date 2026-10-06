@@ -68,6 +68,14 @@ export const superAdminService = {
   },
 
   /**
+   * Permanently delete an organization and all associated data
+   */
+  async deleteOrganization(id) {
+    const response = await api.delete(`/super-admin/organizations/${id}`);
+    return response;
+  },
+
+  /**
    * Get organization's primary PMO
    */
   async getOrganizationPmo(organizationId) {

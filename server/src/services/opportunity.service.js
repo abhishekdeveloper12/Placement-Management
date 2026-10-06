@@ -7,6 +7,7 @@ import User from '../models/User.js';
 import auditService from './audit.service.js';
 import notificationService from './notification.service.js';
 import storageService from './storage.service.js';
+import interactionService from './interaction.service.js';
 import { escapeRegex } from '../utils/tenant.js';
 
 class OpportunityService {
@@ -113,6 +114,7 @@ class OpportunityService {
       location,
       workMode,
       createdBy,
+      jobRoleId,
       organizationId: filterOrgId,
       search,
       page = 1,
@@ -120,6 +122,13 @@ class OpportunityService {
       sortBy = 'createdAt',
       sortOrder = 'desc',
     } = params;
+
+    // Sync any hiring call interactions to ensure real-time pipeline accuracy
+    if (user.role !== 'SUPER_ADMIN' && user.organizationId) {
+      await interactionService.syncHiringInteractionsToOpportunities(user.organizationId);
+    } else if (filterOrgId) {
+      await interactionService.syncHiringInteractionsToOpportunities(filterOrgId);
+    }
 
     const query = {};
 
@@ -172,6 +181,14 @@ class OpportunityService {
 
     if (createdBy) {
       query.createdBy = createdBy;
+    }
+
+    if (jobRoleId && jobRoleId !== 'ALL') {
+      if (mongoose.Types.ObjectId.isValid(jobRoleId)) {
+        query.jobRoleIds = new mongoose.Types.ObjectId(jobRoleId);
+      } else {
+        query.title = { $regex: escapeRegex(jobRoleId.trim()), $options: 'i' };
+      }
     }
 
     if (location && location.trim() !== '') {
