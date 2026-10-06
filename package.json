@@ -1,0 +1,13 @@
+{
+  "name": "placement-management-system",
+  "version": "0.1.0",
+  "description": "Multi-tenant Placement Management System for educational institutions",
+  "scripts": {
+    "server:install": "npm --prefix server install",
+    "client:install": "npm --prefix client install",
+    "install:all": "npm run server:install && npm run client:install",
+    "server:dev": "npm --prefix server run dev",
+    "client:dev": "npm --prefix client run dev",
+    "client:build": "npm --prefix client run build"
+  }
+}

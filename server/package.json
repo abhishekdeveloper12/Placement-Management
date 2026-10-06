@@ -1,0 +1,52 @@
+{
+  "name": "placement-management-server",
+  "version": "0.1.0",
+  "description": "Backend API server for Placement Management System",
+  "main": "src/server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
+    "seed": "node src/scripts/seed.js",
+    "seed:test-data": "node src/scripts/seedTestData.js",
+    "cleanup:legacy-test-data": "node src/scripts/cleanupLegacyTestData.js",
+    "test:data-management": "node src/scripts/verify-data-management.js",
+    "test:self-added-company": "node src/scripts/verify-self-added-company.js",
+    "test:security": "node src/scripts/verify-security.js",
+    "test:superadmin": "node src/scripts/verify-super-admin.js",
+    "test:superadmin-seed": "node src/scripts/verify-super-admin-seed.js",
+    "test:seed-cleanliness": "node src/scripts/verify-seed-cleanliness.js",
+    "test:pmo": "node src/scripts/verify-pmo-team.js",
+    "test:company": "node src/scripts/verify-company.js",
+    "test:import": "node src/scripts/verify-company-import.js",
+    "test:assignment": "node src/scripts/verify-company-assignment.js",
+    "test:outreach": "node src/scripts/verify-quick-outreach.js",
+    "test:outreach-center": "node src/scripts/verify-outreach-center.js",
+    "test:followup": "node src/scripts/verify-interaction-followup.js",
+    "test:opportunity": "node src/scripts/verify-job-opportunity.js",
+    "test:shortlist": "node src/scripts/verify-opportunity-shortlist.js",
+    "test:pmo-dashboard": "node src/scripts/verify-pmo-dashboard.js",
+    "test:super-admin-dashboard": "node src/scripts/verify-super-admin-dashboard.js",
+    "test:audit": "node src/scripts/verify-audit-log.js",
+    "test:notification": "node src/scripts/verify-notification.js",
+    "test:assigned-outreach-status": "node src/scripts/verify-assigned-company-outreach-status.js",
+    "test:pmo-company-database": "node src/scripts/verify-pmo-company-database.js",
+    "test:currently-hiring": "node src/scripts/verify-feedback-driven-currently-hiring.js",
+    "test:job-role": "node src/scripts/verify-job-role-master.js",
+    "test:company-delete": "node src/scripts/verify-company-delete-and-jump-page.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.3",
+    "mongoose": "^8.9.5",
+    "multer": "^2.4.0",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.9"
+  }
+}
