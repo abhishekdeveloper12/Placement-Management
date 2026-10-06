@@ -62,8 +62,8 @@ export const setRefreshTokenCookie = (res, token) => {
 
   res.cookie(REFRESH_COOKIE_NAME, token, {
     httpOnly: true,
-    secure: isProduction,
-    sameSite: isProduction ? 'strict' : 'lax',
+    secure: true,
+    sameSite: 'none',
     path: '/api/auth',
     maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
   });
@@ -77,8 +77,8 @@ export const clearRefreshTokenCookie = (res) => {
 
   res.clearCookie(REFRESH_COOKIE_NAME, {
     httpOnly: true,
-    secure: isProduction,
-    sameSite: isProduction ? 'strict' : 'lax',
+    secure: true,
+    sameSite: 'none',
     path: '/api/auth',
   });
 };

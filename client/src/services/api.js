@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 // Centralized Axios instance configuration
-const baseURL = import.meta.env.VITE_API_URL || '/api';
+const baseURL = import.meta.env.VITE_API_URL || 'https://placement-management-rkfx.onrender.com/api';
 
 export const apiClient = axios.create({
   baseURL,
