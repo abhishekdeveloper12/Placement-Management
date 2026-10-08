@@ -25,12 +25,15 @@ export default function BulkAssignModal({
     }
   }, [isOpen]);
 
-  const targetMember = teamMembers.find((m) => m.id === selectedMemberId);
+  const targetMember = teamMembers.find((m) => (m.id || m._id) === selectedMemberId);
 
   // Calculate preview stats
   const totalCount = selectedCompanies.length;
   const alreadyAssignedCount = selectedMemberId
-    ? selectedCompanies.filter((c) => c.currentAssignment?.assignedTo?.id === selectedMemberId).length
+    ? selectedCompanies.filter((c) => {
+        const assignedId = c.currentAssignment?.assignedTo?.id || c.currentAssignment?.assignedTo?._id;
+        return assignedId === selectedMemberId;
+      }).length
     : 0;
   const newAssignCount = totalCount - alreadyAssignedCount;
 
@@ -45,7 +48,7 @@ export default function BulkAssignModal({
     setError(null);
 
     try {
-      const companyIds = selectedCompanies.map((c) => c.id);
+      const companyIds = selectedCompanies.map((c) => (c.id || c._id)?.toString()).filter(Boolean);
       const res = await assignmentService.assignBulkCompanies({
         companyIds,
         assignedTo: selectedMemberId,
@@ -58,7 +61,7 @@ export default function BulkAssignModal({
       }
     } catch (err) {
       console.error('Bulk assign error:', err);
-      setError(err.response?.data?.error?.message || 'Failed to process bulk company assignment');
+      setError(err.message || err.details?.[0]?.message || err.response?.data?.error?.message || 'Failed to process bulk company assignment');
     } finally {
       setSubmitting(false);
     }

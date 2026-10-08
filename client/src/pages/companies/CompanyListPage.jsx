@@ -376,27 +376,35 @@ export default function CompanyListPage() {
     setSelectedCompaniesMap((prev) => {
       const updated = new Map(prev);
       if (isChecked) {
-        companies.forEach((c) => updated.set(c.id, c));
+        companies.forEach((c) => {
+          const compId = c.id || c._id;
+          if (compId) updated.set(compId, c);
+        });
       } else {
-        companies.forEach((c) => updated.delete(c.id));
+        companies.forEach((c) => {
+          const compId = c.id || c._id;
+          if (compId) updated.delete(compId);
+        });
       }
       return updated;
     });
   };
 
   const handleSelectCompany = (company) => {
+    const compId = company.id || company._id;
+    if (!compId) return;
     setSelectedCompaniesMap((prev) => {
       const updated = new Map(prev);
-      if (updated.has(company.id)) {
-        updated.delete(company.id);
+      if (updated.has(compId)) {
+        updated.delete(compId);
       } else {
-        updated.set(company.id, company);
+        updated.set(compId, company);
       }
       return updated;
     });
   };
 
-  const isAllSelected = companies.length > 0 && companies.every((c) => selectedCompaniesMap.has(c.id));
+  const isAllSelected = companies.length > 0 && companies.every((c) => selectedCompaniesMap.has(c.id || c._id));
   const selectedCompaniesList = Array.from(selectedCompaniesMap.values());
   const selectedCount = selectedCompaniesMap.size;
 
@@ -1224,12 +1232,13 @@ export default function CompanyListPage() {
                 </tr>
               ) : (
                 companies.map((company) => {
-                  const isChecked = selectedCompaniesMap.has(company.id);
+                  const compId = company.id || company._id;
+                  const isChecked = selectedCompaniesMap.has(compId);
                   const assignedMember = company.currentAssignment?.assignedTo;
 
                   return (
                     <tr
-                      key={company.id}
+                      key={compId}
                       className={`hover:bg-slate-50/70 transition-colors ${isChecked ? 'bg-indigo-50/40' : ''}`}
                     >
                       {/* Checkbox (PMO) */}
