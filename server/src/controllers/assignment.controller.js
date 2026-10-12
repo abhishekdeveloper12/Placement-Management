@@ -50,6 +50,134 @@ class AssignmentController {
   }
 
   /**
+   * POST /api/pmo/assignments/matching-company-ids
+   * PMO: Retrieve all matching company IDs and summaries for current search/filters
+   */
+  async getMatchingCompanyIds(req, res, next) {
+    try {
+      const filterParams = req.body || {};
+      const result = await assignmentService.getMatchingCompanyIds(req.user, filterParams);
+
+      return res.status(200).json({
+        success: true,
+        message: 'Matching companies retrieved successfully',
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /api/pmo/assignments/preview-quantity
+   * PMO: Preview assignment of N companies to a single Team Member
+   */
+  async previewQuantityAssignment(req, res, next) {
+    try {
+      const { quantity, assignedTo, unassignedOnly, sortOrder, filterParams } = req.body;
+      const preview = await assignmentService.previewQuantityAssignment(req.user, {
+        quantity,
+        assignedTo,
+        unassignedOnly,
+        sortOrder,
+        filterParams,
+      });
+
+      return res.status(200).json({
+        success: true,
+        message: 'Assignment preview generated successfully',
+        data: preview,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /api/pmo/assignments/assign-quantity
+   * PMO: Assign N companies to a single Team Member
+   */
+  async assignByQuantity(req, res, next) {
+    try {
+      const { quantity, assignedTo, unassignedOnly, sortOrder, filterParams, reason } = req.body;
+      const result = await assignmentService.assignByQuantity(req.user, {
+        quantity,
+        assignedTo,
+        unassignedOnly,
+        sortOrder,
+        filterParams,
+        reason,
+      });
+
+      return res.status(200).json({
+        success: true,
+        message: `Successfully assigned ${result.assigned + result.reassigned} companies to ${result.targetMember?.name || 'team member'}`,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /api/pmo/assignments/preview-distribution
+   * PMO: Preview distribution plan across multiple Team Members
+   */
+  async previewDistribution(req, res, next) {
+    try {
+      const {
+        totalQuantity,
+        teamMemberIds,
+        manualAllocations,
+        unassignedOnly,
+        sortOrder,
+        filterParams,
+        distributionType,
+      } = req.body;
+
+      const preview = await assignmentService.previewDistribution(req.user, {
+        totalQuantity,
+        teamMemberIds,
+        manualAllocations,
+        unassignedOnly,
+        sortOrder,
+        filterParams,
+        distributionType,
+      });
+
+      return res.status(200).json({
+        success: true,
+        message: 'Distribution preview calculated successfully',
+        data: preview,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /api/pmo/assignments/execute-distribution
+   * PMO: Execute distribution across multiple Team Members
+   */
+  async executeDistribution(req, res, next) {
+    try {
+      const { allocations, reason } = req.body;
+      const result = await assignmentService.executeDistribution(req.user, {
+        allocations,
+        reason,
+      });
+
+      return res.status(200).json({
+        success: true,
+        message: `Distribution completed: assigned ${result.grandTotalAssigned + result.grandTotalReassigned} companies across ${result.totalMembers} team members`,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
    * PATCH /api/pmo/assignments/:companyId/reassign
    * Reassign a company to another Team Member
    */

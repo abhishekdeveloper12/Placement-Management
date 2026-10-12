@@ -761,6 +761,31 @@ All endpoints in this group require:
   }
   ```
 
+#### `POST /api/pmo/assignments/matching-company-ids`
+- **Description:** Returns all matching company IDs and summaries for current search/filters, supporting cross-page Select All.
+- **Request Body:** Standard company filter object (`search`, `status`, `industry`, `city`, `source`, `assignmentStatus`, `assignedTo`, `outreachStatus`, `hiringStatus`, `jobRoleId`).
+- **Response Format (200 OK):** `{ success: true, data: { total: number, companies: Array<{ id, companyName, industry, city, status, currentAssignment }> } }`
+
+#### `POST /api/pmo/assignments/preview-quantity`
+- **Description:** Previews bulk assignment of $N$ companies to a target Team Member with live shortage calculation.
+- **Request Body:** `{ quantity: number, assignedTo: string, unassignedOnly?: boolean, sortOrder?: string, filterParams?: object }`
+- **Response Format (200 OK):** `{ success: true, data: { requested, eligibleTotal, selectedCount, shortage, targetMember, companies } }`
+
+#### `POST /api/pmo/assignments/assign-quantity`
+- **Description:** Atomically assigns $N$ companies to a target Team Member, transitioning prior active assignments to `status: 'ENDED'`.
+- **Request Body:** `{ quantity: number, assignedTo: string, unassignedOnly?: boolean, sortOrder?: string, filterParams?: object, reason?: string }`
+- **Response Format (200 OK):** `{ success: true, data: { assigned, reassigned, alreadyAssigned, failed, failures, requested, shortage, targetMember } }`
+
+#### `POST /api/pmo/assignments/preview-distribution`
+- **Description:** Calculates and previews multi-member distribution plans (Equal split with fair remainder handling or Custom manual per-member allocations).
+- **Request Body:** `{ totalQuantity?: number, teamMemberIds: string[], manualAllocations?: Array<{ memberId, quantity }>, unassignedOnly?: boolean, sortOrder?: string, filterParams?: object, distributionType: 'EQUAL' | 'MANUAL' }`
+- **Response Format (200 OK):** `{ success: true, data: { distributionType, requestedTotal, eligibleTotal, totalAllocated, shortage, memberBreakdown } }`
+
+#### `POST /api/pmo/assignments/execute-distribution`
+- **Description:** Executes multi-member distribution across all target team members, logs central audit record, and dispatches in-app notifications.
+- **Request Body:** `{ allocations: Array<{ memberId: string, companyIds: string[] }>, reason?: string }`
+- **Response Format (200 OK):** `{ success: true, data: { totalMembers, grandTotalAssigned, grandTotalReassigned, grandTotalFailed, memberResults } }`
+
 #### `GET /api/companies/:companyId/assignments`
 - **Description:** Retrieves the complete read-only assignment history for a given company, ordered chronologically newest first.
 - **Response Format (200 OK):** Returns array of historical `Assignment` records populated with assignee and assignor details.

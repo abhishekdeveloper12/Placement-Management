@@ -32,6 +32,7 @@ router.post('/', companyController.createCompany);
 router.post('/bulk-delete', requireRole('PMO'), companyController.bulkDeleteCompanies);
 
 // Single Company Operations
+router.patch('/:id/contact', companyController.updateCompanyContact);
 router.get('/:id', companyController.getCompanyById);
 router.patch('/:id', companyController.updateCompany);
 router.patch('/:id/status', companyController.updateCompanyStatus);

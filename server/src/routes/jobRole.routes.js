@@ -12,6 +12,7 @@ pmoRouter.get('/', jobRoleController.getJobRoles);
 pmoRouter.post('/', jobRoleController.createJobRole);
 pmoRouter.patch('/:id', jobRoleController.updateJobRole);
 pmoRouter.patch('/:id/status', jobRoleController.updateJobRoleStatus);
+pmoRouter.delete('/:id', jobRoleController.deleteJobRole);
 
 // User Selection Routes: requires authentication (PMO or TEAM_MEMBER)
 userRouter.use(requireAuth);

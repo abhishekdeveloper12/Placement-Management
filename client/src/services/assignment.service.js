@@ -18,6 +18,46 @@ export const assignmentService = {
   },
 
   /**
+   * Retrieve all matching company IDs for current filters (Select All across pages)
+   */
+  async getMatchingCompanyIds(filterParams = {}) {
+    const response = await api.post('/pmo/assignments/matching-company-ids', filterParams);
+    return response;
+  },
+
+  /**
+   * Preview bulk assignment by quantity
+   */
+  async previewQuantityAssignment(payload) {
+    const response = await api.post('/pmo/assignments/preview-quantity', payload);
+    return response;
+  },
+
+  /**
+   * Execute bulk assignment by quantity
+   */
+  async assignByQuantity(payload) {
+    const response = await api.post('/pmo/assignments/assign-quantity', payload);
+    return response;
+  },
+
+  /**
+   * Preview distribution of companies across multiple team members
+   */
+  async previewDistribution(payload) {
+    const response = await api.post('/pmo/assignments/preview-distribution', payload);
+    return response;
+  },
+
+  /**
+   * Execute distribution of companies across multiple team members
+   */
+  async executeDistribution(payload) {
+    const response = await api.post('/pmo/assignments/execute-distribution', payload);
+    return response;
+  },
+
+  /**
    * Reassign a company to another Team Member
    */
   async reassignCompany(companyId, payload) {

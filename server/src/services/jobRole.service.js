@@ -306,6 +306,57 @@ class JobRoleService {
 
     return role.toJSON();
   }
+
+  /**
+   * Delete a job role if it has not been used in any interactions (PMO only)
+   *
+   * @param {Object} userContext
+   * @param {string} roleId
+   * @returns {Promise<{ message: string }>}
+   */
+  async deleteJobRole(userContext, roleId) {
+    const organizationId = userContext.organizationId;
+
+    if (!mongoose.Types.ObjectId.isValid(roleId)) {
+      const error = new Error('Invalid job role ID format');
+      error.statusCode = 400;
+      error.code = 'INVALID_ROLE_ID';
+      throw error;
+    }
+
+    const role = await JobRole.findOne({ _id: roleId, organizationId });
+    if (!role) {
+      const error = new Error('Job role not found or belongs to another organization');
+      error.statusCode = 404;
+      error.code = 'JOB_ROLE_NOT_FOUND';
+      throw error;
+    }
+
+    const usedCount = await Interaction.countDocuments({
+      organizationId: new mongoose.Types.ObjectId(organizationId),
+      'callDetails.jobRoleIds': role._id,
+    });
+
+    if (usedCount > 0) {
+      const error = new Error('Cannot delete job role that has been used in call records. You can deactivate it instead.');
+      error.statusCode = 400;
+      error.code = 'JOB_ROLE_IN_USE';
+      throw error;
+    }
+
+    await JobRole.deleteOne({ _id: role._id, organizationId });
+
+    await auditService.logAction({
+      organizationId,
+      performedBy: userContext.id || userContext._id,
+      action: 'JOB_ROLE_DELETED',
+      entityType: 'JobRole',
+      entityId: role._id,
+      metadata: { name: role.name },
+    });
+
+    return { message: 'Job role deleted successfully' };
+  }
 }
 
 export const jobRoleService = new JobRoleService();

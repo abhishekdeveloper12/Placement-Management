@@ -26,6 +26,8 @@ import {
   Info,
   ChevronLeft,
   ChevronRight,
+  Trash2,
+  X,
 } from 'lucide-react';
 
 const TARGET_FIELDS = [
@@ -72,6 +74,8 @@ export default function BulkCompanyImportPage() {
   const [validating, setValidating] = useState(false);
   const [previewPage, setPreviewPage] = useState(1);
   const [previewLimit, setPreviewLimit] = useState(10);
+  const [selectedRowIds, setSelectedRowIds] = useState([]);
+  const [notificationMessage, setNotificationMessage] = useState('');
 
   // Step 4 State: Execute Import
   const [importing, setImporting] = useState(false);
@@ -204,6 +208,8 @@ export default function BulkCompanyImportPage() {
         setValidationSummary(result.data);
         setRawHeaders(result.data.rawHeaders || []);
         setColumnMapping(result.data.detectedMapping || {});
+        setSelectedRowIds([]);
+        setNotificationMessage('');
         setCurrentStep(3); // Go to Validation & Preview
       }
     } catch (err) {
@@ -231,6 +237,8 @@ export default function BulkCompanyImportPage() {
       const result = await companyImportService.uploadAndValidate(file, selectedOrgId, columnMapping);
       if (result.success) {
         setValidationSummary(result.data);
+        setSelectedRowIds([]);
+        setNotificationMessage('');
         setCurrentStep(3);
       }
     } catch (err) {
@@ -264,10 +272,13 @@ export default function BulkCompanyImportPage() {
       if (result.success) {
         setImportResult(result.data);
         setCurrentStep(4); // Results step
+      } else {
+        setError(result.message || 'Failed to execute bulk import.');
       }
     } catch (err) {
       console.error('Import execution error:', err);
-      setError(err.response?.data?.error?.message || 'Failed to execute bulk import.');
+      const msg = err.message || err.response?.data?.error?.message || 'Failed to execute bulk import.';
+      setError(msg);
     } finally {
       setImporting(false);
     }
@@ -281,7 +292,88 @@ export default function BulkCompanyImportPage() {
     setColumnMapping({});
     setImportResult(null);
     setError(null);
+    setSelectedRowIds([]);
+    setNotificationMessage('');
     setCurrentStep(1);
+  };
+
+  // Update preview rows and recalculate summary counts
+  const updatePreviewRows = (newPreviewRows, message = '') => {
+    const validCount = newPreviewRows.filter((r) => r.status === 'VALID').length;
+    const dupCount = newPreviewRows.filter((r) => r.status === 'DUPLICATE').length;
+    const invCount = newPreviewRows.filter((r) => r.status === 'INVALID').length;
+
+    setValidationSummary((prev) => ({
+      ...prev,
+      totalRows: newPreviewRows.length,
+      validRowsCount: validCount,
+      duplicateRowsCount: dupCount,
+      invalidRowsCount: invCount,
+      preview: newPreviewRows,
+    }));
+
+    setSelectedRowIds((prev) =>
+      prev.filter((id) => newPreviewRows.some((r) => r.rowNumber === id))
+    );
+
+    if (message) {
+      setNotificationMessage(message);
+      setTimeout(() => setNotificationMessage(''), 4000);
+    }
+  };
+
+  // Remove a single row from preview
+  const handleRemoveRow = (rowNumber) => {
+    if (!validationSummary) return;
+    const targetRow = validationSummary.preview.find((r) => r.rowNumber === rowNumber);
+    const companyName = targetRow?.data?.companyName || `Row #${rowNumber}`;
+    const newPreview = validationSummary.preview.filter((r) => r.rowNumber !== rowNumber);
+    updatePreviewRows(newPreview, `Removed "${companyName}" from import preview.`);
+  };
+
+  // Remove all selected rows from preview
+  const handleRemoveSelected = () => {
+    if (!validationSummary || selectedRowIds.length === 0) return;
+    const count = selectedRowIds.length;
+    const newPreview = validationSummary.preview.filter(
+      (r) => !selectedRowIds.includes(r.rowNumber)
+    );
+    updatePreviewRows(
+      newPreview,
+      `Removed ${count} selected ${count === 1 ? 'company' : 'companies'} from import preview.`
+    );
+    setSelectedRowIds([]);
+  };
+
+  // Remove all duplicate rows from preview
+  const handleRemoveAllDuplicates = () => {
+    if (!validationSummary) return;
+    const dupCount = validationSummary.duplicateRowsCount || 0;
+    if (dupCount === 0) return;
+    const newPreview = validationSummary.preview.filter((r) => r.status !== 'DUPLICATE');
+    updatePreviewRows(
+      newPreview,
+      `Removed all ${dupCount} duplicate ${dupCount === 1 ? 'company' : 'companies'} from import preview.`
+    );
+  };
+
+  // Remove all invalid rows from preview
+  const handleRemoveAllInvalid = () => {
+    if (!validationSummary) return;
+    const invCount = validationSummary.invalidRowsCount || 0;
+    if (invCount === 0) return;
+    const newPreview = validationSummary.preview.filter((r) => r.status !== 'INVALID');
+    updatePreviewRows(
+      newPreview,
+      `Removed all ${invCount} invalid ${invCount === 1 ? 'company' : 'companies'} from import preview.`
+    );
+  };
+
+  // Checkbox toggle helpers
+  const handleToggleSelectRow = (rowNumber) => {
+    setSelectedRowIds((prev) =>
+      prev.includes(rowNumber) ? prev.filter((id) => id !== rowNumber) : [...prev, rowNumber]
+    );
   };
 
   // Filter preview rows by status
@@ -294,6 +386,30 @@ export default function BulkCompanyImportPage() {
   const totalPreviewPages = Math.ceil(totalPreviewRows / previewLimit) || 1;
   const startRowIndex = (previewPage - 1) * previewLimit;
   const paginatedPreviewRows = filteredPreviewRows.slice(startRowIndex, startRowIndex + previewLimit);
+
+  // Auto-adjust page if current page exceeds total pages
+  useEffect(() => {
+    if (previewPage > totalPreviewPages && totalPreviewPages > 0) {
+      setPreviewPage(totalPreviewPages);
+    }
+  }, [previewPage, totalPreviewPages]);
+
+  const isAllFilteredSelected =
+    filteredPreviewRows.length > 0 &&
+    filteredPreviewRows.every((r) => selectedRowIds.includes(r.rowNumber));
+
+  const isSomeFilteredSelected =
+    filteredPreviewRows.some((r) => selectedRowIds.includes(r.rowNumber)) && !isAllFilteredSelected;
+
+  const handleToggleSelectAllFiltered = () => {
+    if (isAllFilteredSelected) {
+      const filteredRowNumbers = new Set(filteredPreviewRows.map((r) => r.rowNumber));
+      setSelectedRowIds((prev) => prev.filter((id) => !filteredRowNumbers.has(id)));
+    } else {
+      const filteredRowNumbers = filteredPreviewRows.map((r) => r.rowNumber);
+      setSelectedRowIds((prev) => Array.from(new Set([...prev, ...filteredRowNumbers])));
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -632,27 +748,91 @@ export default function BulkCompanyImportPage() {
                 </div>
               </div>
 
+              {/* Notification Banner */}
+              {notificationMessage && (
+                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 font-semibold flex items-center justify-between animate-in fade-in">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>{notificationMessage}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setNotificationMessage('')}
+                    className="text-emerald-600 hover:text-emerald-800 cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+
               {/* Row Validation Preview Table */}
               <div className="bg-white border border-slate-200 rounded-xl shadow-xs overflow-hidden">
                 <div className="p-4 border-b border-slate-200 bg-slate-50 flex items-center justify-between flex-wrap gap-3">
-                  <h3 className="text-sm font-bold text-slate-900">File Row Preview & Validation Results</h3>
-                  <div className="flex items-center gap-1.5">
-                    {['ALL', 'VALID', 'DUPLICATE', 'INVALID'].map((st) => (
+                  <div className="flex items-center gap-2.5">
+                    <h3 className="text-sm font-bold text-slate-900">File Row Preview & Validation Results</h3>
+                    {selectedRowIds.length > 0 && (
+                      <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700">
+                        {selectedRowIds.length} selected
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {/* Batch Removal Action Buttons */}
+                    {selectedRowIds.length > 0 && (
                       <button
-                        key={st}
-                        onClick={() => {
-                          setStatusFilter(st);
-                          setPreviewPage(1);
-                        }}
-                        className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
-                          statusFilter === st
-                            ? 'bg-indigo-600 text-white'
-                            : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
-                        }`}
+                        type="button"
+                        onClick={handleRemoveSelected}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg bg-rose-600 hover:bg-rose-700 text-white shadow-2xs transition-colors cursor-pointer"
                       >
-                        {st}
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>Remove Selected ({selectedRowIds.length})</span>
                       </button>
-                    ))}
+                    )}
+
+                    {validationSummary.duplicateRowsCount > 0 && (
+                      <button
+                        type="button"
+                        onClick={handleRemoveAllDuplicates}
+                        className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-lg border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-800 transition-colors shadow-2xs cursor-pointer"
+                        title="Remove all duplicate companies from this preview"
+                      >
+                        <Trash2 className="w-3 h-3 text-amber-600" />
+                        <span>Remove All Duplicates ({validationSummary.duplicateRowsCount})</span>
+                      </button>
+                    )}
+
+                    {validationSummary.invalidRowsCount > 0 && (
+                      <button
+                        type="button"
+                        onClick={handleRemoveAllInvalid}
+                        className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-lg border border-rose-300 bg-rose-50 hover:bg-rose-100 text-rose-800 transition-colors shadow-2xs cursor-pointer"
+                        title="Remove all invalid companies from this preview"
+                      >
+                        <Trash2 className="w-3 h-3 text-rose-600" />
+                        <span>Remove All Invalid ({validationSummary.invalidRowsCount})</span>
+                      </button>
+                    )}
+
+                    {/* Status Filter Pills */}
+                    <div className="flex items-center gap-1 border-l border-slate-200 pl-2">
+                      {['ALL', 'VALID', 'DUPLICATE', 'INVALID'].map((st) => (
+                        <button
+                          key={st}
+                          onClick={() => {
+                            setStatusFilter(st);
+                            setPreviewPage(1);
+                          }}
+                          className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
+                            statusFilter === st
+                              ? 'bg-indigo-600 text-white'
+                              : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
+                          }`}
+                        >
+                          {st}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </div>
 
@@ -660,6 +840,18 @@ export default function BulkCompanyImportPage() {
                   <table className="w-full text-left text-xs">
                     <thead className="bg-slate-100/70 border-b border-slate-200 text-slate-500 font-semibold uppercase tracking-wider">
                       <tr>
+                        <th className="w-10 px-4 py-3 text-center">
+                          <input
+                            type="checkbox"
+                            checked={isAllFilteredSelected}
+                            ref={(el) => {
+                              if (el) el.indeterminate = isSomeFilteredSelected;
+                            }}
+                            onChange={handleToggleSelectAllFiltered}
+                            className="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500 cursor-pointer"
+                            title={isAllFilteredSelected ? 'Deselect all in view' : 'Select all in view'}
+                          />
+                        </th>
                         <th className="px-4 py-3">Row #</th>
                         <th className="px-4 py-3">Status</th>
                         <th className="px-4 py-3">Company Name</th>
@@ -667,60 +859,105 @@ export default function BulkCompanyImportPage() {
                         <th className="px-4 py-3">City / Location</th>
                         <th className="px-4 py-3">Primary HR Contact</th>
                         <th className="px-4 py-3">Validation Message / Reason</th>
+                        <th className="px-4 py-3 text-right">Action</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
-                      {paginatedPreviewRows.map((row) => (
-                        <tr
-                          key={row.rowNumber}
-                          className={`hover:bg-slate-50/70 ${
-                            row.status === 'INVALID'
-                              ? 'bg-rose-50/30'
-                              : row.status === 'DUPLICATE'
-                              ? 'bg-amber-50/30'
-                              : ''
-                          }`}
-                        >
-                          <td className="px-4 py-3 font-mono text-slate-500">#{row.rowNumber}</td>
-                          <td className="px-4 py-3">
-                            <Badge variant={row.status}>{row.status}</Badge>
-                          </td>
-                          <td className="px-4 py-3 font-semibold text-slate-900">{row.data.companyName || '—'}</td>
-                          <td className="px-4 py-3 text-slate-600">{row.data.industry || '—'}</td>
-                          <td className="px-4 py-3 text-slate-600">
-                            {[row.data.city, row.data.state].filter(Boolean).join(', ') || '—'}
-                          </td>
-                          <td className="px-4 py-3 text-slate-600">
-                            {row.data.hrName ? (
-                              <div>
-                                <span>{row.data.hrName}</span>
-                                {row.data.hrEmail && (
-                                  <div className="text-[10px] text-slate-400 font-mono">{row.data.hrEmail}</div>
-                                )}
-                              </div>
-                            ) : (
-                              <span className="text-slate-300">—</span>
-                            )}
-                          </td>
-                          <td className="px-4 py-3">
-                            {row.reasons && row.reasons.length > 0 ? (
-                              <div className="text-[11px] font-semibold text-rose-600 space-y-0.5">
-                                {row.reasons.map((reason, idx) => (
-                                  <div key={idx} className="flex items-center gap-1">
-                                    <AlertCircle className="w-3 h-3 text-rose-500 shrink-0" />
-                                    <span>{reason}</span>
-                                  </div>
-                                ))}
-                              </div>
-                            ) : (
-                              <span className="text-emerald-600 font-semibold text-[11px] flex items-center gap-1">
-                                <Check className="w-3 h-3 text-emerald-500" />
-                                <span>Ready to import</span>
-                              </span>
+                      {paginatedPreviewRows.length === 0 ? (
+                        <tr>
+                          <td colSpan={9} className="px-6 py-12 text-center text-slate-400">
+                            <Building2 className="w-10 h-10 mx-auto mb-2 text-slate-300" />
+                            <p className="text-sm font-bold text-slate-700">No companies to display</p>
+                            <p className="text-xs text-slate-400 mt-1">
+                              {validationSummary.totalRows === 0
+                                ? 'All rows have been removed from this file import preview.'
+                                : `No ${statusFilter.toLowerCase()} rows found in the preview.`}
+                            </p>
+                            {validationSummary.totalRows === 0 && (
+                              <button
+                                type="button"
+                                onClick={() => setCurrentStep(1)}
+                                className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors cursor-pointer"
+                              >
+                                <ArrowLeft className="w-3.5 h-3.5" />
+                                <span>Upload another file</span>
+                              </button>
                             )}
                           </td>
                         </tr>
-                      ))}
+                      ) : (
+                        paginatedPreviewRows.map((row) => (
+                          <tr
+                            key={row.rowNumber}
+                            className={`hover:bg-slate-50/70 transition-colors ${
+                              selectedRowIds.includes(row.rowNumber)
+                                ? 'bg-indigo-50/40'
+                                : row.status === 'INVALID'
+                                ? 'bg-rose-50/30'
+                                : row.status === 'DUPLICATE'
+                                ? 'bg-amber-50/30'
+                                : ''
+                            }`}
+                          >
+                            <td className="w-10 px-4 py-3 text-center">
+                              <input
+                                type="checkbox"
+                                checked={selectedRowIds.includes(row.rowNumber)}
+                                onChange={() => handleToggleSelectRow(row.rowNumber)}
+                                className="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500 cursor-pointer"
+                              />
+                            </td>
+                            <td className="px-4 py-3 font-mono text-slate-500">#{row.rowNumber}</td>
+                            <td className="px-4 py-3">
+                              <Badge variant={row.status}>{row.status}</Badge>
+                            </td>
+                            <td className="px-4 py-3 font-semibold text-slate-900">{row.data.companyName || '—'}</td>
+                            <td className="px-4 py-3 text-slate-600">{row.data.industry || '—'}</td>
+                            <td className="px-4 py-3 text-slate-600">
+                              {[row.data.city, row.data.state].filter(Boolean).join(', ') || '—'}
+                            </td>
+                            <td className="px-4 py-3 text-slate-600">
+                              {row.data.hrName ? (
+                                <div>
+                                  <span>{row.data.hrName}</span>
+                                  {row.data.hrEmail && (
+                                    <div className="text-[10px] text-slate-400 font-mono">{row.data.hrEmail}</div>
+                                  )}
+                                </div>
+                              ) : (
+                                <span className="text-slate-300">—</span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3">
+                              {row.reasons && row.reasons.length > 0 ? (
+                                <div className="text-[11px] font-semibold text-rose-600 space-y-0.5">
+                                  {row.reasons.map((reason, idx) => (
+                                    <div key={idx} className="flex items-center gap-1">
+                                      <AlertCircle className="w-3 h-3 text-rose-500 shrink-0" />
+                                      <span>{reason}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <span className="text-emerald-600 font-semibold text-[11px] flex items-center gap-1">
+                                  <Check className="w-3 h-3 text-emerald-500" />
+                                  <span>Ready to import</span>
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3 text-right">
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveRow(row.rowNumber)}
+                                className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-400 hover:text-rose-600 hover:border-rose-200 hover:bg-rose-50 transition-colors shadow-2xs cursor-pointer"
+                                title={`Remove "${row.data.companyName || 'row'}" from import`}
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
                     </tbody>
                   </table>
                 </div>

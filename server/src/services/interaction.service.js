@@ -105,28 +105,17 @@ class InteractionService {
       throw error;
     }
 
-    // STRICT FOLLOW-UP VALIDATION: Required if nextAction === 'FOLLOW_UP'
+    // Follow-up date validation (Optional — defaults to 1 day on client, but can be cleared or edited)
     let parsedFollowUpDate = null;
-    if (nextAction === 'FOLLOW_UP') {
-      if (!followUpDate) {
-        const error = new Error('Follow-up date is required when next action is FOLLOW_UP');
-        error.statusCode = 400;
-        error.code = 'FOLLOWUP_DATE_REQUIRED';
-        throw error;
-      }
-
-      parsedFollowUpDate = new Date(followUpDate);
-      if (isNaN(parsedFollowUpDate.getTime())) {
+    if (followUpDate) {
+      const d = new Date(followUpDate);
+      if (isNaN(d.getTime())) {
         const error = new Error('Invalid follow-up date format');
         error.statusCode = 400;
         error.code = 'INVALID_FOLLOWUP_DATE';
         throw error;
       }
-    } else if (followUpDate) {
-      const d = new Date(followUpDate);
-      if (!isNaN(d.getTime())) {
-        parsedFollowUpDate = d;
-      }
+      parsedFollowUpDate = d;
     }
 
     if (openings !== null && openings !== undefined && openings !== '') {

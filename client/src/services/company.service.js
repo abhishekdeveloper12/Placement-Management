@@ -53,6 +53,14 @@ export const companyService = {
   },
 
   /**
+   * Update primary HR contact for a company
+   */
+  async updateCompanyContact(companyId, contactData) {
+    const response = await api.patch(`/companies/${companyId}/contact`, contactData);
+    return response;
+  },
+
+  /**
    * Toggle company status (ACTIVE / INACTIVE)
    */
   async updateCompanyStatus(id, status) {

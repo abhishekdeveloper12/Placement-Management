@@ -7,6 +7,7 @@ import Interaction from '../models/Interaction.js';
 import FollowUp from '../models/FollowUp.js';
 import auditService from './audit.service.js';
 import notificationService from './notification.service.js';
+import companyService from './company.service.js';
 
 class AssignmentService {
   /**
@@ -632,156 +633,228 @@ class AssignmentService {
   }
 
   /**
-   * Validate that target team member belongs to org and is active
+   * PMO API: Retrieve all matching company IDs and summaries for current search/filters
+   * Supports "Select all matching companies across all pages"
    */
-  async validateTeamMember(targetOrgId, teamMemberId) {
-    if (!mongoose.Types.ObjectId.isValid(teamMemberId)) {
-      const error = new Error('Invalid Team Member ID format');
-      error.statusCode = 400;
-      error.code = 'INVALID_TEAM_MEMBER_ID';
-      throw error;
-    }
-
-    const member = await User.findOne({
-      _id: teamMemberId,
-      organizationId: targetOrgId,
-      role: 'TEAM_MEMBER',
-    });
-
-    if (!member) {
-      const error = new Error('Team Member not found in your organization');
-      error.statusCode = 404;
-      error.code = 'TEAM_MEMBER_NOT_FOUND';
-      throw error;
-    }
-
-    if (member.status !== 'ACTIVE') {
-      const error = new Error('Cannot assign companies to an inactive Team Member');
-      error.statusCode = 400;
-      error.code = 'TEAM_MEMBER_INACTIVE';
-      throw error;
-    }
-
-    return member;
-  }
-
-  /**
-   * Assign or reassign a single company to a Team Member
-   */
-  async assignCompany(userContext, { companyId, assignedTo, reason = '' }) {
+  async getMatchingCompanyIds(userContext, filterParams = {}) {
     if (userContext.role !== 'PMO') {
-      const error = new Error('Only PMO can assign companies');
+      const error = new Error('Only PMO can query organization companies for bulk assignment');
       error.statusCode = 403;
       error.code = 'FORBIDDEN';
       throw error;
     }
 
-    const orgId = userContext.organizationId;
+    const filter = await companyService.buildCompanyFilter(userContext, filterParams);
+    filter.organizationId = userContext.organizationId;
 
-    if (!mongoose.Types.ObjectId.isValid(companyId)) {
-      const error = new Error('Invalid company ID format');
-      error.statusCode = 400;
-      error.code = 'INVALID_COMPANY_ID';
-      throw error;
-    }
+    const companies = await Company.find(filter)
+      .select('_id companyName industry city status createdAt source')
+      .sort({ createdAt: -1 })
+      .lean();
 
-    const company = await Company.findOne({ _id: companyId, organizationId: orgId });
-    if (!company) {
-      const error = new Error('Company not found');
-      error.statusCode = 404;
-      error.code = 'COMPANY_NOT_FOUND';
-      throw error;
-    }
+    const companyIds = companies.map((c) => c._id);
 
-    const teamMember = await this.validateTeamMember(orgId, assignedTo);
-
-    // Check existing active assignment
-    const activeAssignment = await Assignment.findOne({
-      organizationId: orgId,
-      companyId: company._id,
+    const activeAssignments = await Assignment.find({
+      organizationId: userContext.organizationId,
+      companyId: { $in: companyIds },
       status: 'ACTIVE',
-    });
-
-    let previousAssigneeId = null;
-    let isReassignment = false;
-
-    if (activeAssignment) {
-      if (activeAssignment.assignedTo.toString() === teamMember._id.toString()) {
-        // Already assigned to this user
-        return {
-          alreadyAssigned: true,
-          message: `Company "${company.companyName}" is already assigned to ${teamMember.name}`,
-          assignment: activeAssignment.toJSON(),
-        };
-      }
-
-      // Reassignment: End previous assignment
-      previousAssigneeId = activeAssignment.assignedTo;
-      isReassignment = true;
-      activeAssignment.status = 'ENDED';
-      activeAssignment.unassignedAt = new Date();
-      if (reason) activeAssignment.reason = reason.trim();
-      await activeAssignment.save();
-    }
-
-    // Create new active assignment
-    const newAssignment = await Assignment.create({
-      organizationId: orgId,
-      companyId: company._id,
-      assignedTo: teamMember._id,
-      assignedBy: userContext.id,
-      assignedAt: new Date(),
-      status: 'ACTIVE',
-      reason: reason ? reason.trim() : '',
-    });
-
-    // Audit Logging
-    await auditService.logAction({
-      organizationId: orgId,
-      performedBy: userContext.id,
-      action: isReassignment ? 'COMPANY_REASSIGNED' : 'COMPANY_ASSIGNED',
-      entityType: 'Assignment',
-      entityId: newAssignment._id,
-      metadata: {
-        companyId: company._id,
-        companyName: company.companyName,
-        previousAssignee: previousAssigneeId,
-        newAssignee: teamMember._id,
-        newAssigneeName: teamMember.name,
-        reason: reason ? reason.trim() : '',
-      },
-    });
-
-    // In-App Notification Trigger
-    await notificationService.createNotification({
-      organizationId: orgId,
-      recipientId: teamMember._id,
-      type: isReassignment ? 'COMPANY_REASSIGNED' : 'COMPANY_ASSIGNED',
-      title: isReassignment ? 'Company Reassigned' : 'Company Assigned',
-      message: `Company "${company.companyName}" has been ${isReassignment ? 'reassigned' : 'assigned'} to you for outreach.`,
-      entity: 'Company',
-      entityId: company._id,
-      metadata: {
-        companyName: company.companyName,
-        companyId: company._id,
-      },
-      deduplicationKey: `COMPANY_ASSIGNED_${company._id}_${teamMember._id}_${Date.now()}`,
-    });
-
-    const populated = await Assignment.findById(newAssignment._id)
+    })
       .populate('assignedTo', 'name email')
-      .populate('assignedBy', 'name email')
-      .populate('companyId', 'companyName industry city');
+      .lean();
 
-    return populated.toJSON();
+    const assignmentMap = {};
+    for (const a of activeAssignments) {
+      assignmentMap[a.companyId.toString()] = {
+        id: a._id.toString(),
+        assignedTo: a.assignedTo
+          ? {
+              id: a.assignedTo._id.toString(),
+              name: a.assignedTo.name,
+              email: a.assignedTo.email,
+            }
+          : null,
+        assignedAt: a.assignedAt,
+      };
+    }
+
+    const data = companies.map((c) => {
+      const idStr = c._id.toString();
+      return {
+        id: idStr,
+        _id: idStr,
+        companyName: c.companyName,
+        industry: c.industry || '',
+        city: c.city || '',
+        status: c.status,
+        source: c.source,
+        currentAssignment: assignmentMap[idStr] || null,
+      };
+    });
+
+    return {
+      total: data.length,
+      companies: data,
+    };
   }
 
   /**
-   * Bulk assign multiple companies to a target Team Member
+   * PMO API: Preview assigning a specific quantity of companies to a Team Member
    */
-  async assignBulkCompanies(userContext, { companyIds = [], assignedTo, reason = '' }) {
+  async previewQuantityAssignment(userContext, {
+    quantity,
+    assignedTo,
+    unassignedOnly = true,
+    sortOrder = 'oldest',
+    filterParams = {},
+  }) {
     if (userContext.role !== 'PMO') {
-      const error = new Error('Only PMO can perform bulk company assignments');
+      const error = new Error('Only PMO can perform assignment preview');
+      error.statusCode = 403;
+      error.code = 'FORBIDDEN';
+      throw error;
+    }
+
+    const orgId = userContext.organizationId;
+    const teamMember = await this.validateTeamMember(orgId, assignedTo);
+
+    const parsedQty = parseInt(quantity, 10);
+    if (isNaN(parsedQty) || parsedQty <= 0) {
+      const error = new Error('Please enter a valid positive quantity of companies to assign');
+      error.statusCode = 400;
+      error.code = 'INVALID_QUANTITY';
+      throw error;
+    }
+
+    const effectiveFilters = { ...filterParams };
+    if (unassignedOnly) {
+      effectiveFilters.assignmentStatus = 'UNASSIGNED';
+    }
+
+    const filter = await companyService.buildCompanyFilter(userContext, effectiveFilters);
+    filter.organizationId = orgId;
+
+    const eligibleTotal = await Company.countDocuments(filter);
+
+    const sort = sortOrder === 'newest' ? { createdAt: -1, _id: -1 } : { createdAt: 1, _id: 1 };
+
+    const companies = await Company.find(filter)
+      .sort(sort)
+      .limit(parsedQty)
+      .select('_id companyName industry city status createdAt source')
+      .lean();
+
+    const companyIds = companies.map((c) => c._id);
+    const activeAssignments = await Assignment.find({
+      organizationId: orgId,
+      companyId: { $in: companyIds },
+      status: 'ACTIVE',
+    })
+      .populate('assignedTo', 'name email')
+      .lean();
+
+    const assignmentMap = {};
+    for (const a of activeAssignments) {
+      assignmentMap[a.companyId.toString()] = {
+        id: a._id.toString(),
+        assignedTo: a.assignedTo
+          ? {
+              id: a.assignedTo._id.toString(),
+              name: a.assignedTo.name,
+              email: a.assignedTo.email,
+            }
+          : null,
+      };
+    }
+
+    const shortage = Math.max(0, parsedQty - companies.length);
+
+    return {
+      requested: parsedQty,
+      eligibleTotal,
+      selectedCount: companies.length,
+      shortage,
+      targetMember: {
+        id: teamMember._id.toString(),
+        name: teamMember.name,
+        email: teamMember.email,
+      },
+      companies: companies.map((c) => ({
+        id: c._id.toString(),
+        _id: c._id.toString(),
+        companyName: c.companyName,
+        industry: c.industry || '',
+        city: c.city || '',
+        status: c.status,
+        createdAt: c.createdAt,
+        currentAssignment: assignmentMap[c._id.toString()] || null,
+      })),
+    };
+  }
+
+  /**
+   * PMO API: Assign a specific quantity of companies to a Team Member
+   */
+  async assignByQuantity(userContext, {
+    quantity,
+    assignedTo,
+    unassignedOnly = true,
+    sortOrder = 'oldest',
+    filterParams = {},
+    reason = '',
+  }) {
+    if (userContext.role !== 'PMO') {
+      const error = new Error('Only PMO can perform bulk assignment by quantity');
+      error.statusCode = 403;
+      error.code = 'FORBIDDEN';
+      throw error;
+    }
+
+    const preview = await this.previewQuantityAssignment(userContext, {
+      quantity,
+      assignedTo,
+      unassignedOnly,
+      sortOrder,
+      filterParams,
+    });
+
+    if (preview.selectedCount === 0) {
+      const error = new Error('No eligible companies available matching the specified criteria');
+      error.statusCode = 400;
+      error.code = 'NO_COMPANIES_AVAILABLE';
+      throw error;
+    }
+
+    const companyIds = preview.companies.map((c) => c.id);
+
+    const bulkResult = await this.assignBulkCompanies(userContext, {
+      companyIds,
+      assignedTo,
+      reason,
+    });
+
+    return {
+      ...bulkResult,
+      requested: preview.requested,
+      eligibleTotal: preview.eligibleTotal,
+      shortage: preview.shortage,
+      targetMember: preview.targetMember,
+    };
+  }
+
+  /**
+   * PMO API: Preview distribution of companies across multiple Team Members
+   */
+  async previewDistribution(userContext, {
+    totalQuantity,
+    teamMemberIds = [],
+    manualAllocations = [],
+    unassignedOnly = true,
+    sortOrder = 'oldest',
+    filterParams = {},
+    distributionType = 'EQUAL',
+  }) {
+    if (userContext.role !== 'PMO') {
+      const error = new Error('Only PMO can preview company distribution');
       error.statusCode = 403;
       error.code = 'FORBIDDEN';
       throw error;
@@ -789,219 +862,201 @@ class AssignmentService {
 
     const orgId = userContext.organizationId;
 
-    if (!Array.isArray(companyIds) || companyIds.length === 0) {
-      const error = new Error('Please select at least one company for assignment');
+    if (!Array.isArray(teamMemberIds) || teamMemberIds.length === 0) {
+      const error = new Error('Please select at least one Team Member for distribution');
       error.statusCode = 400;
-      error.code = 'NO_COMPANIES_SELECTED';
+      error.code = 'NO_TEAM_MEMBERS_SELECTED';
       throw error;
     }
 
-    const teamMember = await this.validateTeamMember(orgId, assignedTo);
+    const validMembers = await User.find({
+      _id: { $in: teamMemberIds },
+      organizationId: orgId,
+      role: 'TEAM_MEMBER',
+      status: 'ACTIVE',
+    }).select('_id name email');
 
-    let assignedCount = 0;
-    let reassignedCount = 0;
-    let alreadyAssignedCount = 0;
-    let failedCount = 0;
-    const failures = [];
+    if (validMembers.length === 0) {
+      const error = new Error('No active Team Members found matching selection in your organization');
+      error.statusCode = 404;
+      error.code = 'NO_ACTIVE_TEAM_MEMBERS';
+      throw error;
+    }
 
-    for (const idStr of companyIds) {
-      if (!mongoose.Types.ObjectId.isValid(idStr)) {
-        failedCount++;
-        failures.push({ companyId: idStr, companyName: 'Invalid ID', reason: 'Invalid company ID format' });
-        continue;
+    const effectiveFilters = { ...filterParams };
+    if (unassignedOnly) {
+      effectiveFilters.assignmentStatus = 'UNASSIGNED';
+    }
+
+    const filter = await companyService.buildCompanyFilter(userContext, effectiveFilters);
+    filter.organizationId = orgId;
+
+    const eligibleTotal = await Company.countDocuments(filter);
+
+    let requestedTotal = 0;
+    const memberTargetCounts = {};
+
+    if (distributionType === 'MANUAL') {
+      if (!Array.isArray(manualAllocations) || manualAllocations.length === 0) {
+        const error = new Error('Please provide allocation amounts for each Team Member');
+        error.statusCode = 400;
+        error.code = 'INVALID_ALLOCATIONS';
+        throw error;
       }
 
-      const company = await Company.findOne({ _id: idStr, organizationId: orgId });
-      if (!company) {
-        failedCount++;
-        failures.push({ companyId: idStr, companyName: 'N/A', reason: 'Company not found or invalid tenant' });
-        continue;
+      for (const item of manualAllocations) {
+        const qty = parseInt(item.quantity, 10) || 0;
+        if (qty > 0) {
+          memberTargetCounts[item.memberId] = qty;
+          requestedTotal += qty;
+        }
       }
+    } else {
+      requestedTotal = parseInt(totalQuantity, 10);
+      if (isNaN(requestedTotal) || requestedTotal <= 0) {
+        requestedTotal = eligibleTotal;
+      }
+
+      const totalToDivide = Math.min(requestedTotal, eligibleTotal);
+      const memberCount = validMembers.length;
+      const baseCount = Math.floor(totalToDivide / memberCount);
+      const remainder = totalToDivide % memberCount;
+
+      validMembers.forEach((member, index) => {
+        const extra = index < remainder ? 1 : 0;
+        memberTargetCounts[member._id.toString()] = baseCount + extra;
+      });
+    }
+
+    const totalToFetch = Math.min(
+      Object.values(memberTargetCounts).reduce((a, b) => a + b, 0),
+      eligibleTotal
+    );
+
+    const sort = sortOrder === 'newest' ? { createdAt: -1, _id: -1 } : { createdAt: 1, _id: 1 };
+
+    const companies = await Company.find(filter)
+      .sort(sort)
+      .limit(totalToFetch)
+      .select('_id companyName industry city status createdAt')
+      .lean();
+
+    let offset = 0;
+    const memberBreakdown = validMembers.map((member) => {
+      const targetCount = memberTargetCounts[member._id.toString()] || 0;
+      const allocatedCompanies = companies.slice(offset, offset + targetCount);
+      offset += targetCount;
+
+      return {
+        memberId: member._id.toString(),
+        memberName: member.name,
+        memberEmail: member.email,
+        targetCount,
+        allocatedCount: allocatedCompanies.length,
+        companies: allocatedCompanies.map((c) => ({
+          id: c._id.toString(),
+          _id: c._id.toString(),
+          companyName: c.companyName,
+          industry: c.industry || '',
+          city: c.city || '',
+        })),
+      };
+    });
+
+    const shortage = Math.max(0, requestedTotal - companies.length);
+
+    return {
+      distributionType,
+      requestedTotal,
+      eligibleTotal,
+      totalAllocated: companies.length,
+      shortage,
+      memberBreakdown,
+    };
+  }
+
+  /**
+   * PMO API: Execute distribution across multiple Team Members
+   */
+  async executeDistribution(userContext, { allocations = [], reason = '' }) {
+    if (userContext.role !== 'PMO') {
+      const error = new Error('Only PMO can execute company distribution');
+      error.statusCode = 403;
+      error.code = 'FORBIDDEN';
+      throw error;
+    }
+
+    const orgId = userContext.organizationId;
+
+    if (!Array.isArray(allocations) || allocations.length === 0) {
+      const error = new Error('No allocations provided for distribution');
+      error.statusCode = 400;
+      error.code = 'NO_ALLOCATIONS';
+      throw error;
+    }
+
+    const results = [];
+    let grandTotalAssigned = 0;
+    let grandTotalReassigned = 0;
+    let grandTotalFailed = 0;
+
+    for (const alloc of allocations) {
+      const { memberId, companyIds = [] } = alloc;
+      if (!memberId || companyIds.length === 0) continue;
 
       try {
-        const activeAssignment = await Assignment.findOne({
-          organizationId: orgId,
-          companyId: company._id,
-          status: 'ACTIVE',
+        const bulkResult = await this.assignBulkCompanies(userContext, {
+          companyIds,
+          assignedTo: memberId,
+          reason,
         });
 
-        if (activeAssignment) {
-          if (activeAssignment.assignedTo.toString() === teamMember._id.toString()) {
-            alreadyAssignedCount++;
-            continue;
-          }
+        const member = await User.findById(memberId).select('name email');
 
-          // Close existing active assignment
-          activeAssignment.status = 'ENDED';
-          activeAssignment.unassignedAt = new Date();
-          if (reason) activeAssignment.reason = reason.trim();
-          await activeAssignment.save();
-          reassignedCount++;
-        } else {
-          assignedCount++;
-        }
-
-        // Create new active assignment
-        await Assignment.create({
-          organizationId: orgId,
-          companyId: company._id,
-          assignedTo: teamMember._id,
-          assignedBy: userContext.id,
-          assignedAt: new Date(),
-          status: 'ACTIVE',
-          reason: reason ? reason.trim() : '',
+        results.push({
+          memberId,
+          memberName: member ? member.name : '',
+          memberEmail: member ? member.email : '',
+          ...bulkResult,
         });
+
+        grandTotalAssigned += bulkResult.assigned;
+        grandTotalReassigned += bulkResult.reassigned;
+        grandTotalFailed += bulkResult.failed;
       } catch (err) {
-        failedCount++;
-        failures.push({ companyId: idStr, companyName: company.companyName, reason: err.message || 'Database error' });
+        results.push({
+          memberId,
+          failed: companyIds.length,
+          error: err.message,
+        });
+        grandTotalFailed += companyIds.length;
       }
     }
 
-    // Audit Logging for Bulk Assignment
+    // Central Audit Log for Distribution
     await auditService.logAction({
       organizationId: orgId,
       performedBy: userContext.id,
       action: 'COMPANY_BULK_ASSIGNED',
       entityType: 'Assignment',
       metadata: {
-        totalSelected: companyIds.length,
-        assignedCount,
-        reassignedCount,
-        alreadyAssignedCount,
-        failedCount,
-        targetTeamMemberId: teamMember._id,
-        targetTeamMemberName: teamMember.name,
-      },
-    });
-
-    return {
-      totalSelected: companyIds.length,
-      assigned: assignedCount,
-      reassigned: reassignedCount,
-      alreadyAssigned: alreadyAssignedCount,
-      failed: failedCount,
-      failures,
-    };
-  }
-
-  /**
-   * Unassign a company (ends active assignment without creating a new one)
-   */
-  async unassignCompany(userContext, companyId, { reason = '' } = {}) {
-    if (userContext.role !== 'PMO') {
-      const error = new Error('Only PMO can unassign companies');
-      error.statusCode = 403;
-      error.code = 'FORBIDDEN';
-      throw error;
-    }
-
-    const orgId = userContext.organizationId;
-
-    if (!mongoose.Types.ObjectId.isValid(companyId)) {
-      const error = new Error('Invalid company ID format');
-      error.statusCode = 400;
-      error.code = 'INVALID_COMPANY_ID';
-      throw error;
-    }
-
-    const company = await Company.findOne({ _id: companyId, organizationId: orgId });
-    if (!company) {
-      const error = new Error('Company not found');
-      error.statusCode = 404;
-      error.code = 'COMPANY_NOT_FOUND';
-      throw error;
-    }
-
-    const activeAssignment = await Assignment.findOne({
-      organizationId: orgId,
-      companyId: company._id,
-      status: 'ACTIVE',
-    }).populate('assignedTo', 'name email');
-
-    if (!activeAssignment) {
-      const error = new Error('Company is not currently assigned to any team member');
-      error.statusCode = 400;
-      error.code = 'COMPANY_NOT_ASSIGNED';
-      throw error;
-    }
-
-    const previousAssignee = activeAssignment.assignedTo;
-
-    activeAssignment.status = 'ENDED';
-    activeAssignment.unassignedAt = new Date();
-    if (reason) activeAssignment.reason = reason.trim();
-    await activeAssignment.save();
-
-    // Audit Logging
-    await auditService.logAction({
-      organizationId: orgId,
-      performedBy: userContext.id,
-      action: 'COMPANY_UNASSIGNED',
-      entityType: 'Assignment',
-      entityId: activeAssignment._id,
-      metadata: {
-        companyId: company._id,
-        companyName: company.companyName,
-        previousAssigneeId: previousAssignee ? previousAssignee._id : null,
-        previousAssigneeName: previousAssignee ? previousAssignee.name : '',
+        operation: 'MULTI_MEMBER_DISTRIBUTION',
+        totalMembers: results.length,
+        grandTotalAssigned,
+        grandTotalReassigned,
+        grandTotalFailed,
         reason: reason ? reason.trim() : '',
       },
     });
 
-    return activeAssignment.toJSON();
-  }
-
-  /**
-   * Retrieve chronological assignment history for a company
-   */
-  async getCompanyAssignmentHistory(userContext, companyId) {
-    if (!mongoose.Types.ObjectId.isValid(companyId)) {
-      const error = new Error('Invalid company ID format');
-      error.statusCode = 400;
-      error.code = 'INVALID_COMPANY_ID';
-      throw error;
-    }
-
-    // Verify company exists and check tenant access
-    const companyFilter = { _id: companyId };
-    if (userContext.role === 'PMO') {
-      companyFilter.organizationId = userContext.organizationId;
-    } else if (userContext.role === 'TEAM_MEMBER') {
-      companyFilter.organizationId = userContext.organizationId;
-      // Team Member can only view history if currently assigned to this company
-      const activeAssign = await Assignment.findOne({
-        organizationId: userContext.organizationId,
-        companyId,
-        assignedTo: userContext.id,
-        status: 'ACTIVE',
-      });
-      if (!activeAssign) {
-        const error = new Error('Company not found');
-        error.statusCode = 404;
-        error.code = 'COMPANY_NOT_FOUND';
-        throw error;
-      }
-    } else if (userContext.role !== 'SUPER_ADMIN') {
-      const error = new Error('Company not found');
-      error.statusCode = 404;
-      error.code = 'COMPANY_NOT_FOUND';
-      throw error;
-    }
-
-    const company = await Company.findOne(companyFilter);
-    if (!company) {
-      const error = new Error('Company not found');
-      error.statusCode = 404;
-      error.code = 'COMPANY_NOT_FOUND';
-      throw error;
-    }
-
-    const assignments = await Assignment.find({ companyId: company._id })
-      .populate('assignedTo', 'name email phone status')
-      .populate('assignedBy', 'name email')
-      .sort({ createdAt: -1 });
-
-    return assignments.map((a) => a.toJSON());
+    return {
+      success: true,
+      totalMembers: results.length,
+      grandTotalAssigned,
+      grandTotalReassigned,
+      grandTotalFailed,
+      memberResults: results,
+    };
   }
 
   /**

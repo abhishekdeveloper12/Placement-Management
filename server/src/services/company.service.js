@@ -1284,6 +1284,89 @@ class CompanyService {
       deletedCompanyIds: validCompanyIds.map((id) => id.toString()),
     };
   }
+
+  /**
+   * Update or create primary HR contact for a company
+   *
+   * @param {Object} userContext
+   * @param {string} companyId
+   * @param {Object} contactData
+   * @returns {Promise<Object>}
+   */
+  async updateCompanyContact(userContext, companyId, contactData) {
+    if (!mongoose.Types.ObjectId.isValid(companyId)) {
+      const error = new Error('Invalid company ID format');
+      error.statusCode = 400;
+      error.code = 'INVALID_COMPANY_ID';
+      throw error;
+    }
+
+    // Verify company exists, enforce tenant boundary and active assignment access
+    await this.getCompanyById(userContext, companyId);
+    const company = await Company.findById(companyId);
+    if (!company) {
+      const error = new Error('Company not found');
+      error.statusCode = 404;
+      error.code = 'COMPANY_NOT_FOUND';
+      throw error;
+    }
+
+    const orgId = company.organizationId;
+    let contact = null;
+
+    if (contactData.id && mongoose.Types.ObjectId.isValid(contactData.id)) {
+      contact = await Contact.findOne({ _id: contactData.id, companyId: company._id });
+    }
+    if (!contact) {
+      contact = await Contact.findOne({ companyId: company._id, isPrimary: true });
+    }
+
+    const previousSnapshot = contact ? contact.toObject() : null;
+
+    if (contact) {
+      if (contactData.name !== undefined) contact.name = contactData.name.trim();
+      if (contactData.designation !== undefined) contact.designation = contactData.designation.trim();
+      if (contactData.email !== undefined) contact.email = contactData.email.trim().toLowerCase();
+      if (contactData.phone !== undefined) contact.phone = contactData.phone.trim();
+      if (contactData.linkedin !== undefined) contact.linkedin = contactData.linkedin.trim();
+      contact.isPrimary = true;
+      await contact.save();
+    } else {
+      contact = await Contact.create({
+        organizationId: orgId,
+        companyId: company._id,
+        name: contactData.name?.trim() || 'HR Contact',
+        designation: contactData.designation?.trim() || '',
+        email: contactData.email?.trim().toLowerCase() || '',
+        phone: contactData.phone?.trim() || '',
+        linkedin: contactData.linkedin?.trim() || '',
+        isPrimary: true,
+      });
+    }
+
+    await auditService.logAction({
+      organizationId: orgId,
+      performedBy: userContext.id,
+      action: previousSnapshot ? 'HR_CONTACT_UPDATED' : 'HR_CONTACT_CREATED',
+      entityType: 'Contact',
+      entityId: contact._id,
+      oldValue: previousSnapshot,
+      newValue: contact.toObject(),
+      metadata: {
+        companyId: company._id,
+        companyName: company.companyName,
+        contactName: contact.name,
+        phone: contact.phone,
+        email: contact.email,
+      },
+    });
+
+    return {
+      contact,
+      companyId: company._id,
+      companyName: company.companyName,
+    };
+  }
 }
 
 export const companyService = new CompanyService();

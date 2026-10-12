@@ -10,13 +10,17 @@ import superAdminService from '../../services/superAdmin.service';
 import pmoService from '../../services/pmo.service';
 import interactionService from '../../services/interaction.service';
 import jobRoleService from '../../services/jobRole.service';
+import assignmentService from '../../services/assignment.service';
 import Badge from '../../components/common/Badge';
 import Modal from '../../components/common/Modal';
 import ConfirmDialog from '../../components/common/ConfirmDialog';
 import BulkAssignModal from '../../components/companies/BulkAssignModal';
+import QuickBulkAssignModal from '../../components/companies/QuickBulkAssignModal';
 import {
   Building2,
   Plus,
+  Sparkles,
+  Layers,
   Search,
   Filter,
   RefreshCw,
@@ -139,6 +143,9 @@ export default function CompanyListPage() {
 
   // Bulk Assign Modal
   const [isBulkAssignOpen, setIsBulkAssignOpen] = useState(false);
+  const [isQuickBulkAssignOpen, setIsQuickBulkAssignOpen] = useState(false);
+  const [quickBulkAssignTab, setQuickBulkAssignTab] = useState('QUANTITY');
+  const [fetchingMatchingAcrossPages, setFetchingMatchingAcrossPages] = useState(false);
 
   // Status confirm modal
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
@@ -402,6 +409,40 @@ export default function CompanyListPage() {
       }
       return updated;
     });
+  };
+
+  const handleSelectAllMatchingAcrossPages = async () => {
+    setFetchingMatchingAcrossPages(true);
+    try {
+      const filterParams = {
+        search,
+        status: statusFilter,
+        industry: industryFilter,
+        city: cityFilter,
+        source: sourceFilter,
+        assignmentStatus: assignmentStatusFilter,
+        assignedTo: assignedToFilter,
+        outreachStatus: outreachStatusFilter,
+        hiringStatus: hiringStatusFilter,
+        jobRoleId: jobRoleFilter,
+      };
+      const res = await assignmentService.getMatchingCompanyIds(filterParams);
+      if (res.success && res.data && Array.isArray(res.data.companies)) {
+        const newMap = new Map();
+        res.data.companies.forEach((c) => {
+          const compId = c.id || c._id;
+          if (compId) newMap.set(compId, c);
+        });
+        setSelectedCompaniesMap(newMap);
+        setActionSuccess(`Selected all ${res.data.companies.length} companies matching current filters across all pages.`);
+        setTimeout(() => setActionSuccess(''), 4000);
+      }
+    } catch (err) {
+      console.error('Failed to select all matching companies:', err);
+      alert(err.message || 'Failed to select all matching companies across pages');
+    } finally {
+      setFetchingMatchingAcrossPages(false);
+    }
   };
 
   const isAllSelected = companies.length > 0 && companies.every((c) => selectedCompaniesMap.has(c.id || c._id));
@@ -826,6 +867,19 @@ export default function CompanyListPage() {
             )}
           </div>
 
+          {isPMO && (
+            <button
+              onClick={() => {
+                setQuickBulkAssignTab('QUANTITY');
+                setIsQuickBulkAssignOpen(true);
+              }}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg transition-colors shadow-2xs cursor-pointer"
+            >
+              <Sparkles className="w-4 h-4 text-indigo-600" />
+              <span>Quick Bulk Assignment</span>
+            </button>
+          )}
+
           <button
             onClick={() => {
               resetCreate({ country: 'India', status: 'ACTIVE' });
@@ -962,11 +1016,25 @@ export default function CompanyListPage() {
             </button>
 
             <button
-              onClick={() => setIsBulkAssignOpen(true)}
+              onClick={() => {
+                setQuickBulkAssignTab('SELECTED');
+                setIsQuickBulkAssignOpen(true);
+              }}
               className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-indigo-900 bg-white hover:bg-indigo-50 rounded-lg transition-colors shadow-xs cursor-pointer"
             >
               <UserCheck className="w-4 h-4 text-indigo-700" />
               <span>Assign Selected</span>
+            </button>
+
+            <button
+              onClick={() => {
+                setQuickBulkAssignTab('DISTRIBUTE');
+                setIsQuickBulkAssignOpen(true);
+              }}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-indigo-100 bg-indigo-800 hover:bg-indigo-700 border border-indigo-700 rounded-lg transition-colors shadow-xs cursor-pointer"
+            >
+              <Users className="w-4 h-4 text-indigo-300" />
+              <span>Distribute to Team</span>
             </button>
 
             <button
@@ -1173,6 +1241,41 @@ export default function CompanyListPage() {
 
       {/* Companies Central Database Roster Table */}
       <div className="bg-white border border-slate-200 rounded-xl shadow-xs overflow-hidden">
+        {/* Across-Pages Selection Prompt Banner (Method A) */}
+        {isPMO && companies.length > 0 && isAllSelected && pagination.total > companies.length && (
+          <div className="bg-indigo-50 border-b border-indigo-100 px-4 py-2.5 text-xs text-indigo-900 flex items-center justify-center gap-2">
+            {selectedCompaniesMap.size >= pagination.total ? (
+              <>
+                <span>
+                  All <strong>{pagination.total}</strong> companies matching current filters are selected across all pages.
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setSelectedCompaniesMap(new Map())}
+                  className="font-bold text-indigo-700 hover:text-indigo-900 underline ml-1 cursor-pointer"
+                >
+                  Clear selection
+                </button>
+              </>
+            ) : (
+              <>
+                <span>
+                  All <strong>{companies.length}</strong> companies on this page are selected.
+                </span>
+                <button
+                  type="button"
+                  onClick={handleSelectAllMatchingAcrossPages}
+                  disabled={fetchingMatchingAcrossPages}
+                  className="font-bold text-indigo-700 hover:text-indigo-900 underline ml-1 cursor-pointer inline-flex items-center gap-1.5"
+                >
+                  {fetchingMatchingAcrossPages && <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-600" />}
+                  <span>Select all {pagination.total} companies matching current filters across all pages</span>
+                </button>
+              </>
+            )}
+          </div>
+        )}
+
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-semibold uppercase tracking-wider">
@@ -1858,8 +1961,42 @@ export default function CompanyListPage() {
         isLoading={statusLoading}
       />
 
-      {/* BULK ASSIGNMENT MODAL (PMO) */}
+      {/* QUICK BULK ASSIGNMENT MODAL (PMO) */}
       {isPMO && (
+        <QuickBulkAssignModal
+          isOpen={isQuickBulkAssignOpen}
+          onClose={() => setIsQuickBulkAssignOpen(false)}
+          selectedCompanies={selectedCompaniesList}
+          teamMembers={teamMembers}
+          currentFilters={{
+            search,
+            status: statusFilter,
+            industry: industryFilter,
+            city: cityFilter,
+            source: sourceFilter,
+            assignmentStatus: assignmentStatusFilter,
+            assignedTo: assignedToFilter,
+            outreachStatus: outreachStatusFilter,
+            hiringStatus: hiringStatusFilter,
+            jobRoleId: jobRoleFilter,
+          }}
+          totalMatchingCount={pagination.total}
+          initialTab={quickBulkAssignTab}
+          onSuccess={(data) => {
+            setSelectedCompaniesMap(new Map());
+            fetchCompanyData(pagination.page);
+            setActionSuccess(
+              data.grandTotalAssigned !== undefined
+                ? `Successfully distributed companies across ${data.totalMembers} team members.`
+                : 'Bulk company assignment updated successfully.'
+            );
+            setTimeout(() => setActionSuccess(''), 4000);
+          }}
+        />
+      )}
+
+      {/* FALLBACK BULK ASSIGNMENT MODAL (PMO) */}
+      {isPMO && isBulkAssignOpen && (
         <BulkAssignModal
           isOpen={isBulkAssignOpen}
           onClose={() => setIsBulkAssignOpen(false)}

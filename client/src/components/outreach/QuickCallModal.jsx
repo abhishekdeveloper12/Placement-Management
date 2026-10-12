@@ -16,13 +16,41 @@ import {
   Search,
   Check,
   Tag,
+  Save,
+  Loader2,
 } from 'lucide-react';
 import interactionService from '../../services/interaction.service';
 import jobRoleService from '../../services/jobRole.service';
+import companyService from '../../services/company.service';
+
+// Format Date object to 'YYYY-MM-DDTHH:mm' in user's local timezone for HTML5 datetime-local input
+const formatLocalDatetime = (date = new Date()) => {
+  const d = new Date(date);
+  const pad = (n) => String(n).padStart(2, '0');
+  const year = d.getFullYear();
+  const month = pad(d.getMonth() + 1);
+  const day = pad(d.getDate());
+  const hours = pad(d.getHours());
+  const minutes = pad(d.getMinutes());
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+};
+
+// Format Date object to 'YYYY-MM-DD' in user's local timezone for HTML5 date input
+const formatLocalDate = (date = new Date()) => {
+  const d = new Date(date);
+  const pad = (n) => String(n).padStart(2, '0');
+  const year = d.getFullYear();
+  const month = pad(d.getMonth() + 1);
+  const day = pad(d.getDate());
+  return `${year}-${month}-${day}`;
+};
 
 export default function QuickCallModal({ isOpen, onClose, onSuccess, company, primaryContact }) {
   // Contact State (Inline Edit Support)
   const [showEditContact, setShowEditContact] = useState(false);
+  const [isSavingContact, setIsSavingContact] = useState(false);
+  const [contactSuccessMsg, setContactSuccessMsg] = useState('');
+  const [contactErrorMsg, setContactErrorMsg] = useState('');
   const [contactForm, setContactForm] = useState({
     id: '',
     name: '',
@@ -64,6 +92,10 @@ export default function QuickCallModal({ isOpen, onClose, onSuccess, company, pr
     if (isOpen) {
       setErrorMsg('');
       setSuccessMsg('');
+      setContactSuccessMsg('');
+      setContactErrorMsg('');
+      setIsSavingContact(false);
+      setShowEditContact(false);
       setIsSubmitting(false);
       setSelectedJobRoleIds([]);
       setRoleSearchQuery('');
@@ -81,13 +113,13 @@ export default function QuickCallModal({ isOpen, onClose, onSuccess, company, pr
         setContactForm({ id: '', name: '', designation: '', email: '', phone: '', linkedin: '' });
       }
 
-      // Default follow-up date to 7 days from now
-      const defaultFollowUp = new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0];
-      setFollowUpDate(defaultFollowUp);
+      // Default follow-up date to 1 day from now in local timezone (editable & optional)
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      setFollowUpDate(formatLocalDate(tomorrow));
 
-      // Default call date-time to now
-      const nowFormatted = new Date().toISOString().slice(0, 16);
-      setInteractionDate(nowFormatted);
+      // Default call date-time to current local device time
+      setInteractionDate(formatLocalDatetime(new Date()));
 
       // Fetch active job roles for selection
       fetchActiveRoles();
@@ -113,6 +145,52 @@ export default function QuickCallModal({ isOpen, onClose, onSuccess, company, pr
     setContactForm((prev) => ({ ...prev, [name]: value }));
   };
 
+  const handleSaveContactOnly = async (e) => {
+    if (e) e.preventDefault();
+    setContactErrorMsg('');
+    setContactSuccessMsg('');
+
+    if (!contactForm.name?.trim() && !contactForm.phone?.trim() && !contactForm.email?.trim()) {
+      setContactErrorMsg('Please provide at least a contact name, phone number, or email address.');
+      return;
+    }
+
+    try {
+      setIsSavingContact(true);
+      const companyId = company.id || company._id;
+      const res = await companyService.updateCompanyContact(companyId, contactForm);
+
+      const updatedContact = res.data?.contact || res.data;
+      if (updatedContact) {
+        setContactForm({
+          id: updatedContact._id || updatedContact.id || contactForm.id,
+          name: updatedContact.name !== undefined ? updatedContact.name : contactForm.name,
+          designation: updatedContact.designation !== undefined ? updatedContact.designation : contactForm.designation,
+          email: updatedContact.email !== undefined ? updatedContact.email : contactForm.email,
+          phone: updatedContact.phone !== undefined ? updatedContact.phone : contactForm.phone,
+          linkedin: updatedContact.linkedin !== undefined ? updatedContact.linkedin : contactForm.linkedin,
+        });
+      }
+
+      setContactSuccessMsg('Contact details updated and saved successfully.');
+      setShowEditContact(false);
+
+      if (onSuccess) {
+        onSuccess({ contactUpdatedOnly: true, contact: updatedContact || contactForm });
+      }
+
+      setTimeout(() => {
+        setContactSuccessMsg('');
+      }, 4000);
+    } catch (err) {
+      console.error('Failed to update HR contact:', err);
+      const msg = err.response?.data?.error?.message || err.message || 'Failed to save contact details';
+      setContactErrorMsg(msg);
+    } finally {
+      setIsSavingContact(false);
+    }
+  };
+
   const toggleJobRole = (roleId) => {
     setSelectedJobRoleIds((prev) =>
       prev.includes(roleId) ? prev.filter((id) => id !== roleId) : [...prev, roleId]
@@ -124,12 +202,7 @@ export default function QuickCallModal({ isOpen, onClose, onSuccess, company, pr
     setErrorMsg('');
     setSuccessMsg('');
 
-    // Validation
-    if (nextAction === 'FOLLOW_UP' && !followUpDate) {
-      setErrorMsg('Follow-up date is required when next action is FOLLOW_UP');
-      return;
-    }
-
+    // Follow-up date is optional
     try {
       setIsSubmitting(true);
 
@@ -147,7 +220,7 @@ export default function QuickCallModal({ isOpen, onClose, onSuccess, company, pr
         specificRequirement,
         hrResponse,
         nextAction,
-        followUpDate: nextAction === 'FOLLOW_UP' ? followUpDate : null,
+        followUpDate: followUpDate || null,
         interactionDate: interactionDate ? new Date(interactionDate).toISOString() : new Date().toISOString(),
         contact: contactForm.name ? contactForm : null,
       };
@@ -218,15 +291,43 @@ export default function QuickCallModal({ isOpen, onClose, onSuccess, company, pr
                 <UserCheck className="w-4 h-4 text-indigo-600" />
                 <span>Primary HR Contact Details</span>
               </div>
-              <button
-                type="button"
-                onClick={() => setShowEditContact(!showEditContact)}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-indigo-700 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 rounded-lg transition-colors cursor-pointer"
-              >
-                <Edit3 className="w-3.5 h-3.5" />
-                <span>{showEditContact ? 'Close Contact Form' : contactForm.name ? 'Edit Contact' : '+ Add Contact'}</span>
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowEditContact(!showEditContact);
+                    setContactErrorMsg('');
+                  }}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-indigo-700 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 rounded-lg transition-colors cursor-pointer"
+                >
+                  <Edit3 className="w-3.5 h-3.5" />
+                  <span>{showEditContact ? 'Cancel / Close' : contactForm.name ? 'Edit Contact' : '+ Add Contact'}</span>
+                </button>
+              </div>
             </div>
+
+            {contactErrorMsg && (
+              <div className="mb-3 p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-xs text-rose-700 flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-rose-500 shrink-0" />
+                <span>{contactErrorMsg}</span>
+              </div>
+            )}
+
+            {contactSuccessMsg && (
+              <div className="mb-3 p-2.5 rounded-lg bg-emerald-50 border border-emerald-200 text-xs text-emerald-800 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span className="font-semibold">{contactSuccessMsg}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="text-[11px] font-medium text-emerald-700 underline hover:text-emerald-900 cursor-pointer"
+                >
+                  Done (Close)
+                </button>
+              </div>
+            )}
 
             {!showEditContact ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-xs">
@@ -252,61 +353,101 @@ export default function QuickCallModal({ isOpen, onClose, onSuccess, company, pr
                 </div>
               </div>
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 text-xs">
-                <div>
-                  <label className="block font-medium text-slate-700 mb-1">HR Name</label>
-                  <input
-                    type="text"
-                    name="name"
-                    value={contactForm.name}
-                    onChange={handleContactChange}
-                    placeholder="e.g. Ms. Anjali Sharma"
-                    className="w-full px-3 py-1.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
-                  />
+              <div className="space-y-3 pt-1">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                  <div>
+                    <label className="block font-medium text-slate-700 mb-1">HR Name</label>
+                    <input
+                      type="text"
+                      name="name"
+                      value={contactForm.name}
+                      onChange={handleContactChange}
+                      placeholder="e.g. Ms. Anjali Sharma"
+                      className="w-full px-3 py-1.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-medium text-slate-700 mb-1">Designation</label>
+                    <input
+                      type="text"
+                      name="designation"
+                      value={contactForm.designation}
+                      onChange={handleContactChange}
+                      placeholder="e.g. Talent Acquisition Head"
+                      className="w-full px-3 py-1.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-medium text-slate-700 mb-1">Phone Number / Mobile</label>
+                    <input
+                      type="text"
+                      name="phone"
+                      value={contactForm.phone}
+                      onChange={handleContactChange}
+                      placeholder="+91 9876543210"
+                      className="w-full px-3 py-1.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-hidden font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-medium text-slate-700 mb-1">Email Address</label>
+                    <input
+                      type="email"
+                      name="email"
+                      value={contactForm.email}
+                      onChange={handleContactChange}
+                      placeholder="hr@company.com"
+                      className="w-full px-3 py-1.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-hidden font-mono"
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="block font-medium text-slate-700 mb-1">LinkedIn Profile</label>
+                    <input
+                      type="text"
+                      name="linkedin"
+                      value={contactForm.linkedin}
+                      onChange={handleContactChange}
+                      placeholder="https://linkedin.com/in/hr-profile"
+                      className="w-full px-3 py-1.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                    />
+                  </div>
                 </div>
-                <div>
-                  <label className="block font-medium text-slate-700 mb-1">Designation</label>
-                  <input
-                    type="text"
-                    name="designation"
-                    value={contactForm.designation}
-                    onChange={handleContactChange}
-                    placeholder="e.g. Talent Acquisition Head"
-                    className="w-full px-3 py-1.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
-                  />
-                </div>
-                <div>
-                  <label className="block font-medium text-slate-700 mb-1">Phone Number</label>
-                  <input
-                    type="text"
-                    name="phone"
-                    value={contactForm.phone}
-                    onChange={handleContactChange}
-                    placeholder="+91 9876543210"
-                    className="w-full px-3 py-1.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
-                  />
-                </div>
-                <div>
-                  <label className="block font-medium text-slate-700 mb-1">Email Address</label>
-                  <input
-                    type="email"
-                    name="email"
-                    value={contactForm.email}
-                    onChange={handleContactChange}
-                    placeholder="hr@company.com"
-                    className="w-full px-3 py-1.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
-                  />
-                </div>
-                <div className="sm:col-span-2">
-                  <label className="block font-medium text-slate-700 mb-1">LinkedIn Profile</label>
-                  <input
-                    type="text"
-                    name="linkedin"
-                    value={contactForm.linkedin}
-                    onChange={handleContactChange}
-                    placeholder="https://linkedin.com/in/hr-profile"
-                    className="w-full px-3 py-1.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
-                  />
+
+                {/* Separate Save Option for Upper Portion */}
+                <div className="pt-3 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-2.5">
+                  <p className="text-[11px] text-slate-500 italic">
+                    💡 Got the correct number? Save here directly without needing to log a call.
+                  </p>
+                  <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowEditContact(false);
+                        setContactErrorMsg('');
+                      }}
+                      disabled={isSavingContact}
+                      className="px-3 py-1.5 text-xs font-medium text-slate-600 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg transition-colors cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSaveContactOnly}
+                      disabled={isSavingContact}
+                      className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 rounded-lg shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+                    >
+                      {isSavingContact ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          <span>Saving Contact...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Save className="w-3.5 h-3.5" />
+                          <span>Save Contact Details Only</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
@@ -318,12 +459,22 @@ export default function QuickCallModal({ isOpen, onClose, onSuccess, company, pr
               <Clock className="w-4 h-4 text-slate-500" />
               <span>Call Log Timestamp</span>
             </div>
-            <input
-              type="datetime-local"
-              value={interactionDate}
-              onChange={(e) => setInteractionDate(e.target.value)}
-              className="px-3 py-1 bg-white border border-slate-300 rounded-lg text-xs font-mono font-medium focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
-            />
+            <div className="flex items-center gap-2">
+              <input
+                type="datetime-local"
+                value={interactionDate}
+                onChange={(e) => setInteractionDate(e.target.value)}
+                className="px-3 py-1 bg-white border border-slate-300 rounded-lg text-xs font-mono font-medium focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+              />
+              <button
+                type="button"
+                onClick={() => setInteractionDate(formatLocalDatetime(new Date()))}
+                title="Reset to current local time"
+                className="px-2.5 py-1 text-[11px] font-medium text-slate-600 bg-white border border-slate-300 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+              >
+                Now
+              </button>
+            </div>
           </div>
 
           {/* Section 3: Question 1 — Currently Hiring? */}
@@ -633,16 +784,13 @@ export default function QuickCallModal({ isOpen, onClose, onSuccess, company, pr
             <div>
               <label className="block font-bold text-slate-900 uppercase tracking-wider mb-1.5 flex items-center justify-between">
                 <span>14. Scheduled Follow-up Date</span>
-                {nextAction === 'FOLLOW_UP' && <span className="text-rose-600 font-semibold">(Required)</span>}
+                <span className="text-slate-400 font-medium text-[11px] normal-case">(Optional • Defaults to 1 day)</span>
               </label>
               <input
                 type="date"
-                required={nextAction === 'FOLLOW_UP'}
                 value={followUpDate}
                 onChange={(e) => setFollowUpDate(e.target.value)}
-                className={`w-full px-3 py-2 border rounded-lg bg-white font-medium focus:ring-2 focus:ring-indigo-500 focus:outline-hidden ${
-                  nextAction === 'FOLLOW_UP' ? 'border-indigo-400 bg-indigo-50/30' : 'border-slate-300'
-                }`}
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white font-medium focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
               />
             </div>
           </div>

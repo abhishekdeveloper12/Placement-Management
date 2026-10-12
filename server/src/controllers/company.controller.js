@@ -133,3 +133,26 @@ export const bulkDeleteCompanies = async (req, res, next) => {
     next(error);
   }
 };
+
+/**
+ * Update or add primary HR contact for a company
+ */
+export const updateCompanyContact = async (req, res, next) => {
+  try {
+    const companyId = req.params.companyId || req.params.id;
+    const result = await companyService.updateCompanyContact(
+      req.user,
+      companyId,
+      req.body
+    );
+    return successResponse(
+      res,
+      200,
+      'HR Contact details updated successfully',
+      result
+    );
+  } catch (error) {
+    next(error);
+  }
+};
+

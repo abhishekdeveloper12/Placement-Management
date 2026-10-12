@@ -6,7 +6,7 @@ const jobRoleService = {
    */
   getJobRoles: async (params = {}) => {
     const response = await api.get('/pmo/job-roles', { params });
-    return response.data;
+    return response;
   },
 
   /**
@@ -14,7 +14,7 @@ const jobRoleService = {
    */
   getActiveJobRoles: async () => {
     const response = await api.get('/job-roles/active');
-    return response.data;
+    return response;
   },
 
   /**
@@ -22,7 +22,7 @@ const jobRoleService = {
    */
   createJobRole: async (roleData) => {
     const response = await api.post('/pmo/job-roles', roleData);
-    return response.data;
+    return response;
   },
 
   /**
@@ -30,7 +30,7 @@ const jobRoleService = {
    */
   updateJobRole: async (id, updateData) => {
     const response = await api.patch(`/pmo/job-roles/${id}`, updateData);
-    return response.data;
+    return response;
   },
 
   /**
@@ -38,7 +38,15 @@ const jobRoleService = {
    */
   updateJobRoleStatus: async (id, status) => {
     const response = await api.patch(`/pmo/job-roles/${id}/status`, { status });
-    return response.data;
+    return response;
+  },
+
+  /**
+   * Delete a job role (PMO only, strictly allowed only if usedCount === 0)
+   */
+  deleteJobRole: async (id) => {
+    const response = await api.delete(`/pmo/job-roles/${id}`);
+    return response;
   },
 };
 

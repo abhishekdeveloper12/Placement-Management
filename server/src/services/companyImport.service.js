@@ -355,80 +355,99 @@ class CompanyImportService {
     let failedCount = 0;
     const errorReport = [];
 
-    for (const item of rows) {
+    // Pre-extract normalized names for batch duplicate check
+    const normalizedItems = rows.map((item, idx) => {
       const rowData = item.data || item;
-      const rowNum = item.rowNumber || importedCount + failedCount + 1;
+      const rowNum = item.rowNumber || idx + 1;
+      const rawName = rowData?.companyName ? String(rowData.companyName).trim() : '';
+      const normName = rawName ? normalizeCompanyName(rawName) : '';
+      return { item, rowData, rowNum, rawName, normName };
+    });
 
-      if (!rowData || !rowData.companyName) {
-        failedCount++;
-        errorReport.push({
-          rowNumber: rowNum,
-          companyName: rowData?.companyName || 'N/A',
-          status: 'FAILED',
-          reason: 'Company Name missing',
-        });
-        continue;
-      }
+    const allNormNames = normalizedItems.map((r) => r.normName).filter(Boolean);
+    const existingCompanies = await Company.find({
+      organizationId: targetOrgId,
+      normalizedName: { $in: allNormNames },
+    })
+      .select('normalizedName')
+      .lean();
 
-      try {
-        const normName = normalizeCompanyName(rowData.companyName);
+    const existingDbSet = new Set(existingCompanies.map((c) => c.normalizedName));
+    const processedInBatch = new Set();
 
-        // Final safety check against race conditions
-        const existing = await Company.findOne({
-          organizationId: targetOrgId,
-          normalizedName: normName,
-        });
+    // Process rows in concurrent chunks of 10 for high throughput
+    const CHUNK_SIZE = 10;
+    for (let i = 0; i < normalizedItems.length; i += CHUNK_SIZE) {
+      const chunk = normalizedItems.slice(i, i + CHUNK_SIZE);
 
-        if (existing) {
-          failedCount++;
-          errorReport.push({
-            rowNumber: rowNum,
-            companyName: rowData.companyName,
-            status: 'DUPLICATE',
-            reason: 'Company with similar name already exists',
-          });
-          continue;
-        }
+      await Promise.all(
+        chunk.map(async ({ rowData, rowNum, rawName, normName }) => {
+          if (!rowData || !rawName) {
+            failedCount++;
+            errorReport.push({
+              rowNumber: rowNum,
+              companyName: rawName || 'N/A',
+              status: 'FAILED',
+              reason: 'Company Name missing',
+            });
+            return;
+          }
 
-        const company = await Company.create({
-          organizationId: targetOrgId,
-          companyName: rowData.companyName.trim(),
-          normalizedName: normName,
-          industry: rowData.industry?.trim() || '',
-          website: rowData.website?.trim().toLowerCase() || '',
-          linkedin: rowData.linkedin?.trim() || '',
-          country: rowData.country?.trim() || 'India',
-          state: rowData.state?.trim() || '',
-          city: rowData.city?.trim() || '',
-          location: rowData.location?.trim() || '',
-          remarks: rowData.remarks?.trim() || '',
-          status: 'ACTIVE',
-          createdBy: userContext.id,
-        });
+          if (existingDbSet.has(normName) || processedInBatch.has(normName)) {
+            failedCount++;
+            errorReport.push({
+              rowNumber: rowNum,
+              companyName: rawName,
+              status: 'DUPLICATE',
+              reason: 'Company with similar name already exists',
+            });
+            return;
+          }
 
-        if (rowData.hrName && rowData.hrName.trim()) {
-          await Contact.create({
-            organizationId: targetOrgId,
-            companyId: company._id,
-            name: rowData.hrName.trim(),
-            designation: rowData.hrDesignation?.trim() || '',
-            email: rowData.hrEmail?.trim().toLowerCase() || '',
-            phone: rowData.hrPhone?.trim() || '',
-            linkedin: rowData.hrLinkedin?.trim() || '',
-            isPrimary: true,
-          });
-        }
+          processedInBatch.add(normName);
 
-        importedCount++;
-      } catch (err) {
-        failedCount++;
-        errorReport.push({
-          rowNumber: rowNum,
-          companyName: rowData.companyName,
-          status: 'FAILED',
-          reason: err.message || 'Database creation failure',
-        });
-      }
+          try {
+            const company = await Company.create({
+              organizationId: targetOrgId,
+              companyName: rawName,
+              normalizedName: normName,
+              industry: rowData.industry?.trim() || '',
+              website: rowData.website?.trim().toLowerCase() || '',
+              linkedin: rowData.linkedin?.trim() || '',
+              country: rowData.country?.trim() || 'India',
+              state: rowData.state?.trim() || '',
+              city: rowData.city?.trim() || '',
+              location: rowData.location?.trim() || '',
+              remarks: rowData.remarks?.trim() || '',
+              status: 'ACTIVE',
+              createdBy: userContext.id,
+            });
+
+            if (rowData.hrName && rowData.hrName.trim()) {
+              await Contact.create({
+                organizationId: targetOrgId,
+                companyId: company._id,
+                name: rowData.hrName.trim(),
+                designation: rowData.hrDesignation?.trim() || '',
+                email: rowData.hrEmail?.trim().toLowerCase() || '',
+                phone: rowData.hrPhone?.trim() || '',
+                linkedin: rowData.hrLinkedin?.trim() || '',
+                isPrimary: true,
+              });
+            }
+
+            importedCount++;
+          } catch (err) {
+            failedCount++;
+            errorReport.push({
+              rowNumber: rowNum,
+              companyName: rawName,
+              status: 'FAILED',
+              reason: err.message || 'Database creation failure',
+            });
+          }
+        })
+      );
     }
 
     const overallStatus =

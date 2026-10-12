@@ -13,6 +13,7 @@ import {
   RefreshCw,
   Edit2,
   Power,
+  Trash2,
   ChevronLeft,
   ChevronRight,
   AlertCircle,
@@ -48,6 +49,11 @@ export default function JobRoleListPage() {
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   const [statusTargetRole, setStatusTargetRole] = useState(null);
   const [statusLoading, setStatusLoading] = useState(false);
+
+  // Delete confirm modal
+  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
+  const [deleteTargetRole, setDeleteTargetRole] = useState(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
 
   const {
     register,
@@ -145,6 +151,29 @@ export default function JobRoleListPage() {
       alert(err.response?.data?.error?.message || 'Failed to update status');
     } finally {
       setStatusLoading(false);
+    }
+  };
+
+  const openDeleteConfirm = (role) => {
+    setDeleteTargetRole(role);
+    setIsDeleteConfirmOpen(true);
+  };
+
+  const handleDeleteRole = async () => {
+    if (!deleteTargetRole) return;
+    setDeleteLoading(true);
+    try {
+      await jobRoleService.deleteJobRole(deleteTargetRole.id);
+      setActionSuccess(`Job role '${deleteTargetRole.name}' deleted successfully.`);
+      setIsDeleteConfirmOpen(false);
+      setDeleteTargetRole(null);
+      fetchJobRoles(pagination.page);
+      setTimeout(() => setActionSuccess(''), 4000);
+    } catch (err) {
+      console.error('Delete role error:', err);
+      alert(err.response?.data?.error?.message || 'Failed to delete job role');
+    } finally {
+      setDeleteLoading(false);
     }
   };
 
@@ -358,13 +387,31 @@ export default function JobRoleListPage() {
                           onClick={() => openStatusConfirm(role)}
                           className={`p-1.5 rounded-lg border transition-colors shadow-2xs cursor-pointer ${
                             role.status === 'ACTIVE'
-                              ? 'border-slate-200 bg-white text-rose-600 hover:bg-rose-50'
+                              ? 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100'
                               : 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
                           }`}
                           title={role.status === 'ACTIVE' ? 'Deactivate role' : 'Activate role'}
                         >
                           <Power className="w-3.5 h-3.5" />
                         </button>
+
+                        {role.usedCount > 0 ? (
+                          <button
+                            disabled
+                            className="p-1.5 rounded-lg border border-slate-100 bg-slate-50 text-slate-300 cursor-not-allowed"
+                            title="Cannot delete job role that has been used in call records. Deactivate it instead."
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => openDeleteConfirm(role)}
+                            className="p-1.5 rounded-lg border border-rose-200 bg-white text-rose-600 hover:bg-rose-50 transition-colors shadow-2xs cursor-pointer"
+                            title="Delete job role"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -489,6 +536,21 @@ export default function JobRoleListPage() {
         confirmText={statusTargetRole?.status === 'ACTIVE' ? 'Deactivate' : 'Activate'}
         variant={statusTargetRole?.status === 'ACTIVE' ? 'DANGER' : 'SUCCESS'}
         isLoading={statusLoading}
+      />
+
+      {/* DELETE CONFIRMATION DIALOG */}
+      <ConfirmDialog
+        isOpen={isDeleteConfirmOpen}
+        onClose={() => {
+          setIsDeleteConfirmOpen(false);
+          setDeleteTargetRole(null);
+        }}
+        onConfirm={handleDeleteRole}
+        title="Delete Job Role"
+        message={`Are you sure you want to delete job role "${deleteTargetRole?.name || ''}"? This action cannot be undone.`}
+        confirmText="Delete Role"
+        variant="DANGER"
+        isLoading={deleteLoading}
       />
     </div>
   );

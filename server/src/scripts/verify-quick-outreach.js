@@ -217,8 +217,8 @@ async function runVerification() {
     }
     console.log('[4/10] ✔ PASS: Call with FOLLOW_UP created FollowUp record (dueDate: tomorrow).');
 
-    // TEST 3: Validation Error — Follow-up date required
-    console.log('\n--- Test 3: Validation error when followUpDate missing for FOLLOW_UP ---');
+    // TEST 3: Validation — Follow-up date is optional
+    console.log('\n--- Test 3: Follow-up date is optional when nextAction is FOLLOW_UP ---');
     const call3Res = await fetch(`${baseUrl}/team-member/companies/${comp1._id}/interactions`, {
       method: 'POST',
       headers: {
@@ -233,10 +233,10 @@ async function runVerification() {
     });
 
     const call3Data = await call3Res.json();
-    if (call3Res.status !== 400 || call3Data.error?.code !== 'FOLLOWUP_DATE_REQUIRED') {
-      throw new Error(`Test 3 Failed: Expected 400 FOLLOWUP_DATE_REQUIRED, got ${call3Res.status}`);
+    if (call3Res.status !== 201 || !call3Data.success) {
+      throw new Error(`Test 3 Failed: Expected 201 success when followUpDate is null, got ${call3Res.status}`);
     }
-    console.log('[5/10] ✔ PASS: Missing followUpDate rejected with 400 FOLLOWUP_DATE_REQUIRED.');
+    console.log('[5/10] ✔ PASS: Optional followUpDate accepted with 201 Created.');
 
     // TEST 4: Security — Unassigned company rejection (Resource Hiding)
     console.log('\n--- Test 4: Rahul attempts to record call for unassigned company ---');
@@ -295,7 +295,7 @@ async function runVerification() {
       headers: { Authorization: `Bearer ${rahulToken}` },
     });
     const summaryData = await summaryRes.json();
-    if (summaryRes.status !== 200 || summaryData.data.totalInteractions !== 2) {
+    if (summaryRes.status !== 200 || summaryData.data.totalInteractions !== 3) {
       throw new Error(`Test 7 Failed Summary: ${JSON.stringify(summaryData)}`);
     }
 
@@ -303,10 +303,10 @@ async function runVerification() {
       headers: { Authorization: `Bearer ${rahulToken}` },
     });
     const historyData = await historyRes.json();
-    if (historyRes.status !== 200 || historyData.data.length !== 2) {
+    if (historyRes.status !== 200 || historyData.data.length !== 3) {
       throw new Error(`Test 7 Failed History: ${JSON.stringify(historyData)}`);
     }
-    console.log('[9/10] ✔ PASS: Outreach Summary (total=2, nextFollowUp present) & History timeline verified.');
+    console.log('[9/10] ✔ PASS: Outreach Summary (total=3, nextFollowUp present) & History timeline verified.');
 
     // TEST 8: PMO Interactions Visibility
     console.log('\n--- Test 8: PMO views organization-wide interactions ---');
@@ -314,7 +314,7 @@ async function runVerification() {
       headers: { Authorization: `Bearer ${pmoToken}` },
     });
     const pmoInterData = await pmoInterRes.json();
-    if (pmoInterRes.status !== 200 || pmoInterData.data.length !== 2) {
+    if (pmoInterRes.status !== 200 || pmoInterData.data.length !== 3) {
       throw new Error(`Test 8 Failed PMO Interactions: ${JSON.stringify(pmoInterData)}`);
     }
     console.log('[10/10] ✔ PASS: PMO retrieved organization-wide interactions.');

@@ -23,6 +23,18 @@ import {
   CheckSquare,
 } from 'lucide-react';
 
+// Format Date object to 'YYYY-MM-DDTHH:mm' in user's local timezone for HTML5 datetime-local input
+const formatLocalDatetime = (date = new Date()) => {
+  const d = new Date(date);
+  const pad = (n) => String(n).padStart(2, '0');
+  const year = d.getFullYear();
+  const month = pad(d.getMonth() + 1);
+  const day = pad(d.getDate());
+  const hours = pad(d.getHours());
+  const minutes = pad(d.getMinutes());
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+};
+
 export default function TeamMemberFollowUpListPage() {
   const [followUps, setFollowUps] = useState([]);
   const [stats, setStats] = useState({ totalPending: 0, totalOverdue: 0, totalCompleted: 0, totalDueToday: 0 });
@@ -122,7 +134,7 @@ export default function TeamMemberFollowUpListPage() {
       title: '',
       description: '',
       priority: 'MEDIUM',
-      dueDate: new Date(Date.now() + 86400000).toISOString().slice(0, 16), // Default tomorrow
+      dueDate: formatLocalDatetime(new Date(Date.now() + 86400000)), // Default tomorrow
     });
     try {
       const res = await assignmentService.getTeamMemberAssignedCompanies({ limit: 100 });
@@ -145,7 +157,11 @@ export default function TeamMemberFollowUpListPage() {
     }
     setCreateLoading(true);
     try {
-      const res = await followUpService.createFollowUp(createForm);
+      const payload = {
+        ...createForm,
+        dueDate: createForm.dueDate ? new Date(createForm.dueDate).toISOString() : null,
+      };
+      const res = await followUpService.createFollowUp(payload);
       if (res.success) {
         setSuccessMsg('Follow-up task created successfully');
         setIsCreateOpen(false);

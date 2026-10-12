@@ -15,6 +15,7 @@ router.use(requireAuth, requireRole('TEAM_MEMBER'));
 router.get('/companies', assignmentController.getTeamMemberAssignedCompanies);
 router.post('/companies', companyController.createCompany);
 router.get('/companies/:id', assignmentController.getTeamMemberAssignedCompanyDetail);
+router.patch('/companies/:companyId/contact', companyController.updateCompanyContact);
 
 // Team Member Follow-Up Task Management
 router.get('/follow-ups/stats', followUpController.getFollowUpStats);

@@ -43,6 +43,7 @@ export const companyImportService = {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
+      timeout: 120000,
     });
     return response;
   },
@@ -51,7 +52,9 @@ export const companyImportService = {
    * Execute actual bulk insertion of valid rows
    */
   async executeImport(payload) {
-    const response = await api.post('/companies/import/execute', payload);
+    const response = await api.post('/companies/import/execute', payload, {
+      timeout: 120000,
+    });
     return response;
   },
 

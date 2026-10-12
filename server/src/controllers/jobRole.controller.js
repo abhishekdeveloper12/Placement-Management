@@ -83,6 +83,20 @@ class JobRoleController {
       next(error);
     }
   }
+
+  /**
+   * DELETE /api/pmo/job-roles/:id
+   * Delete job role if unused (PMO only)
+   */
+  async deleteJobRole(req, res, next) {
+    try {
+      const { id } = req.params;
+      const result = await jobRoleService.deleteJobRole(req.user, id);
+      return successResponse(res, 200, result.message);
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const jobRoleController = new JobRoleController();
